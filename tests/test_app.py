@@ -63,8 +63,18 @@ class RollingTraderTests(TestCase):
 
             trader = RollingTrader(config_path=str(config_path))
             trader.data.refresh_sse180_universe = Mock(return_value={"instrument_count": 180})
-            trader.data.sync_akshare = Mock(return_value={"written_csv": 180, "end_date": "2026-03-20"})
-            trader.data.service.read_local_calendar_date = Mock(side_effect=["2026-03-19", "2026-03-20"])
+            trader.data.sync_market = Mock(return_value={"written_csv": 180, "as_of_date": "2026-03-20"})
+            trader.data.sync_fundamentals = Mock(return_value={"feed_type": "fundamentals"})
+            trader.data.sync_events = Mock(return_value={"feed_type": "events"})
+            trader.data.verify_freshness = Mock(
+                return_value={
+                    "as_of_date": "2026-03-20",
+                    "eligible_for_daily_run": True,
+                    "validation_status": "passed",
+                    "validation_errors": "",
+                }
+            )
+            trader.data.service.read_local_calendar_date = Mock(return_value="2026-03-19")
             trader.train.start = Mock(return_value={"task_count": 1})
             selection_dir = analysis_dir / "selection_demo"
             selection_dir.mkdir(parents=True, exist_ok=True)
@@ -94,3 +104,45 @@ class RollingTraderTests(TestCase):
             self.assertTrue((analysis_dir / "latest_recommendation_report.html").exists())
             self.assertTrue((analysis_dir / "latest_recommendation_spotlight.md").exists())
             self.assertTrue((analysis_dir / "latest_recommendation_spotlight.html").exists())
+
+    def test_daily_run_skips_latest_overwrite_when_freshness_gate_fails(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            analysis_dir = Path(tmpdir) / "analysis"
+            provider_uri = Path(tmpdir) / "provider"
+            (provider_uri / "calendars").mkdir(parents=True, exist_ok=True)
+            (provider_uri / "calendars" / "day.txt").write_text("2026-03-19\n", encoding="utf-8")
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            latest_html = analysis_dir / "latest_recommendation_report.html"
+            latest_html.write_text("old-report", encoding="utf-8")
+            config_path.write_text(
+                "\n".join(
+                    [
+                        f'provider_uri: "{provider_uri}"',
+                        f'analysis_folder: "{analysis_dir}"',
+                        'strict_report_gate: true',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            trader = RollingTrader(config_path=str(config_path))
+            trader.data.sync_market = Mock(return_value={"as_of_date": "2026-03-20", "feed_type": "market"})
+            trader.data.sync_fundamentals = Mock(return_value={"feed_type": "fundamentals"})
+            trader.data.sync_events = Mock(return_value={"feed_type": "events"})
+            trader.data.verify_freshness = Mock(
+                return_value={
+                    "as_of_date": "2026-03-20",
+                    "eligible_for_daily_run": False,
+                    "validation_status": "failed",
+                    "validation_errors": "missing_manifest:events",
+                }
+            )
+            trader.train.start = Mock()
+
+            result = trader.daily_run()
+
+            self.assertTrue(result["daily_run_skipped"])
+            self.assertIsNone(result["selection_dir"])
+            self.assertEqual(latest_html.read_text(encoding="utf-8"), "old-report")
+            trader.train.start.assert_not_called()

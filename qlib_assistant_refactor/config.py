@@ -44,6 +44,25 @@ class AppConfig:
     backup_folder: str = "~/model_pkl"
     model_filter: Optional[List[str]] = None
     rec_filter: Optional[List[Dict[str, float]]] = None
+    market_close_cutoff: str = "15:30"
+    required_feeds: List[str] = field(default_factory=lambda: ["market", "fundamentals", "events"])
+    max_feed_age_hours: Dict[str, int] = field(
+        default_factory=lambda: {
+            "market": 8,
+            "fundamentals": 24,
+            "events": 24,
+        }
+    )
+    strict_report_gate: bool = True
+    source_priority: Dict[str, List[str]] = field(
+        default_factory=lambda: {
+            "market": ["akshare", "eastmoney"],
+            "fundamentals": ["eastmoney_individual", "eastmoney_yjbb", "eastmoney_yjyg", "eastmoney_yjkb"],
+            "events": ["eastmoney_notice", "eastmoney_news"],
+        }
+    )
+    min_universe_coverage: float = 0.9
+    price_conflict_tolerance: float = 0.03
     asset_url: str = (
         "https://github.com/chenditc/investment_data/releases/latest/download/qlib_bin.tar.gz"
     )
@@ -61,12 +80,13 @@ class AppConfig:
             return cls()
 
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        defaults = cls()
         mirrors = [
             MirrorConfig(name=item["name"], prefix=item.get("prefix", ""))
             for item in data.get("mirrors", [])
         ]
         if not mirrors:
-            mirrors = cls().mirrors
+            mirrors = defaults.mirrors
 
         merged: Dict[str, Any] = {
             "region": data.get("region", cls.region),
@@ -94,6 +114,13 @@ class AppConfig:
             "backup_folder": data.get("backup_folder", cls.backup_folder),
             "model_filter": data.get("model_filter", cls.model_filter),
             "rec_filter": data.get("rec_filter", cls.rec_filter),
+            "market_close_cutoff": data.get("market_close_cutoff", defaults.market_close_cutoff),
+            "required_feeds": data.get("required_feeds", defaults.required_feeds),
+            "max_feed_age_hours": data.get("max_feed_age_hours", defaults.max_feed_age_hours),
+            "strict_report_gate": data.get("strict_report_gate", defaults.strict_report_gate),
+            "source_priority": data.get("source_priority", defaults.source_priority),
+            "min_universe_coverage": data.get("min_universe_coverage", defaults.min_universe_coverage),
+            "price_conflict_tolerance": data.get("price_conflict_tolerance", defaults.price_conflict_tolerance),
             "asset_url": data.get("asset_url", cls.asset_url),
             "mirrors": mirrors,
         }

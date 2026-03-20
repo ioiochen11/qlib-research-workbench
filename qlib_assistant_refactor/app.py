@@ -45,8 +45,26 @@ class RollingTrader:
             refresh_info = self.data.refresh_sse180_universe()
 
         before_date = self.data.service.read_local_calendar_date()
-        sync_info = self.data.sync_akshare(start_date=before_date, end_date=None, limit=None)
-        latest_date = str(self.data.service.read_local_calendar_date() or sync_info["end_date"])
+        market_info = self.data.sync_market(start_date=before_date, end_date=None, limit=None)
+        latest_date = str(market_info["as_of_date"])
+        fundamentals_info = self.data.sync_fundamentals(as_of_date=latest_date, limit=None)
+        events_info = self.data.sync_events(as_of_date=latest_date, lookback_days=3, limit=None)
+        freshness_info = self.data.verify_freshness(as_of_date=latest_date)
+        manifest_dir = str(Path(self.config.sync_dir).expanduser() / "manifests" / latest_date)
+
+        if self.config.strict_report_gate and not freshness_info["eligible_for_daily_run"]:
+            return {
+                "refresh_info": refresh_info,
+                "market_info": market_info,
+                "fundamentals_info": fundamentals_info,
+                "events_info": events_info,
+                "freshness_info": freshness_info,
+                "daily_run_skipped": True,
+                "skip_reason": freshness_info.get("validation_errors") or "freshness_gate_failed",
+                "manifest_dir": manifest_dir,
+                "selection_dir": None,
+            }
+
         train_info = self.train.start(limit=None)
         selection_dir = self.model.selection_report()
         csv_path = self.model.save_recommendation_sheet(
@@ -93,8 +111,13 @@ class RollingTrader:
         )
         return {
             "refresh_info": refresh_info,
-            "sync_info": sync_info,
+            "market_info": market_info,
+            "fundamentals_info": fundamentals_info,
+            "events_info": events_info,
+            "freshness_info": freshness_info,
+            "sync_info": market_info,
             "train_info": train_info,
+            "manifest_dir": manifest_dir,
             "selection_dir": str(selection_dir),
             "recommendations_csv": str(csv_path),
             "recommendation_report_md": str(markdown_path),

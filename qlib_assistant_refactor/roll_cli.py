@@ -26,6 +26,21 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--start-date", default=None, help="Sync start date in YYYY-MM-DD format.")
     sync_parser.add_argument("--end-date", default=None, help="Sync end date in YYYY-MM-DD format.")
     sync_parser.add_argument("--limit", type=int, default=None, help="Only sync the first N symbols.")
+    sync_market_parser = data_subparsers.add_parser("sync-market", help="Sync validated market data with multi-source checks.")
+    sync_market_parser.add_argument("--start-date", default=None, help="Sync start date in YYYY-MM-DD format.")
+    sync_market_parser.add_argument("--end-date", default=None, help="Sync end date in YYYY-MM-DD format.")
+    sync_market_parser.add_argument("--limit", type=int, default=None, help="Only sync the first N symbols.")
+    sync_fundamentals_parser = data_subparsers.add_parser("sync-fundamentals", help="Sync structured fundamentals feed.")
+    sync_fundamentals_parser.add_argument("--date", default=None, help="As-of date in YYYY-MM-DD format.")
+    sync_fundamentals_parser.add_argument("--limit", type=int, default=None, help="Only sync the first N symbols.")
+    sync_events_parser = data_subparsers.add_parser("sync-events", help="Sync structured announcements and news feed.")
+    sync_events_parser.add_argument("--date", default=None, help="As-of date in YYYY-MM-DD format.")
+    sync_events_parser.add_argument("--lookback-days", type=int, default=3, help="How many recent calendar days to include.")
+    sync_events_parser.add_argument("--limit", type=int, default=None, help="Only sync the first N symbols.")
+    verify_freshness_parser = data_subparsers.add_parser("verify-freshness", help="Check post-close data freshness gates.")
+    verify_freshness_parser.add_argument("--date", default=None, help="As-of date in YYYY-MM-DD format.")
+    show_manifest_parser = data_subparsers.add_parser("show-manifest", help="Show saved feed manifests for a date.")
+    show_manifest_parser.add_argument("--date", default=None, help="As-of date in YYYY-MM-DD format.")
     data_subparsers.add_parser("verify", help="Verify local dataset structure.")
     data_subparsers.add_parser("qlib-check", help="Initialize qlib and read sample features.")
 
@@ -196,6 +211,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.data_command == "sync-akshare":
             print_kv(app.data.sync_akshare(start_date=args.start_date, end_date=args.end_date, limit=args.limit))
             return 0
+        if args.data_command == "sync-market":
+            print_kv(app.data.sync_market(start_date=args.start_date, end_date=args.end_date, limit=args.limit))
+            return 0
+        if args.data_command == "sync-fundamentals":
+            print_kv(app.data.sync_fundamentals(as_of_date=args.date, limit=args.limit))
+            return 0
+        if args.data_command == "sync-events":
+            print_kv(
+                app.data.sync_events(
+                    as_of_date=args.date,
+                    lookback_days=args.lookback_days,
+                    limit=args.limit,
+                )
+            )
+            return 0
+        if args.data_command == "verify-freshness":
+            print_kv(app.data.verify_freshness(as_of_date=args.date))
+            return 0
+        if args.data_command == "show-manifest":
+            info = app.data.show_manifest(as_of_date=args.date)
+            print(f"as_of_date={info['as_of_date']}")
+            print(f"manifest_dir={info['manifest_dir']}")
+            for item in info["items"]:
+                print(item)
+            return 0
         if args.data_command == "verify":
             print_kv(app.data.verify())
             return 0
@@ -210,8 +250,22 @@ def main(argv: list[str] | None = None) -> int:
         info = app.daily_run()
         if info.get("refresh_info"):
             print_kv({f"refresh_{k}": v for k, v in info["refresh_info"].items()})
-        print_kv({f"sync_{k}": v for k, v in info["sync_info"].items()})
-        print_kv({f"train_{k}": v for k, v in info["train_info"].items()})
+        for label in ["market_info", "fundamentals_info", "events_info", "freshness_info"]:
+            section = info.get(label)
+            if section:
+                print_kv({f"{label[:-5]}_{k}": v for k, v in section.items()})
+        if info.get("sync_info"):
+            print_kv({f"sync_{k}": v for k, v in info["sync_info"].items()})
+        if info.get("train_info"):
+            print_kv({f"train_{k}": v for k, v in info["train_info"].items()})
+        if info.get("daily_run_skipped"):
+            print("daily_run_skipped=True")
+        if info.get("skip_reason"):
+            print(f"skip_reason={info['skip_reason']}")
+        if info.get("manifest_dir"):
+            print(f"manifest_dir={info['manifest_dir']}")
+        if info.get("selection_dir") is None:
+            return 0
         print(f"selection_dir={info['selection_dir']}")
         print(f"recommendations_csv={info['recommendations_csv']}")
         print(f"recommendation_report_md={info['recommendation_report_md']}")

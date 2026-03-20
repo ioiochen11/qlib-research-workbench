@@ -100,3 +100,53 @@ class DataCLITests(TestCase):
 
         self.assertEqual(result["instrument_count"], 180)
         self.assertEqual(result["source"], "akshare_csindex")
+
+    def test_sync_market_returns_summary(self) -> None:
+        service = Mock()
+        cli = DataCLI(AppConfig(), service=service)
+        fake_summary = {
+            "feed_type": "market",
+            "as_of_date": "2026-03-20",
+            "output_path": "/tmp/market.csv",
+            "manifest_path": "/tmp/market.json",
+            "record_count": 300,
+            "coverage_ratio": 1.0,
+            "eligible_for_daily_run": True,
+            "validation_status": "passed",
+            "validation_errors": [],
+        }
+        with self.subTest("patched sync_market"):
+            from unittest.mock import patch
+
+            with patch("qlib_assistant_refactor.data_cli.FeedSyncManager") as mock_feed_cls:
+                mock_feed = mock_feed_cls.return_value
+                mock_feed.sync_market.return_value = type("Summary", (), fake_summary)()
+                cli.feed_sync = mock_feed
+                result = cli.sync_market(end_date="2026-03-20")
+
+        self.assertEqual(result["feed_type"], "market")
+        self.assertEqual(result["validation_status"], "passed")
+
+    def test_verify_freshness_returns_summary(self) -> None:
+        service = Mock()
+        cli = DataCLI(AppConfig(), service=service)
+        fake_summary = {
+            "as_of_date": "2026-03-20",
+            "eligible_for_daily_run": False,
+            "validation_status": "failed",
+            "validation_errors": ["missing_manifest:events"],
+            "manifest_path": "/tmp/freshness.json",
+            "manifest_paths": ["/tmp/market.json", "/tmp/fundamentals.json", "/tmp/events.json"],
+            "fetched_at": "2026-03-20T16:20:00",
+        }
+        with self.subTest("patched verify_freshness"):
+            from unittest.mock import patch
+
+            with patch("qlib_assistant_refactor.data_cli.FeedSyncManager") as mock_feed_cls:
+                mock_feed = mock_feed_cls.return_value
+                mock_feed.verify_freshness.return_value = type("Summary", (), fake_summary)()
+                cli.feed_sync = mock_feed
+                result = cli.verify_freshness(as_of_date="2026-03-20")
+
+        self.assertFalse(result["eligible_for_daily_run"])
+        self.assertIn("missing_manifest:events", result["validation_errors"])

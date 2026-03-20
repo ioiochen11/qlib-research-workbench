@@ -6,6 +6,7 @@ from typing import Optional
 from .akshare_sync import AkshareDailySync
 from .config import AppConfig
 from .data_service import DataService, ProbeResult
+from .feed_sync import FeedSyncManager
 from .qlib_env import provider_uri_path
 
 
@@ -23,6 +24,7 @@ class DataCLI:
     def __init__(self, config: AppConfig, service: Optional[DataService] = None):
         self.config = config
         self.service = service or DataService(config)
+        self.feed_sync = FeedSyncManager(config)
 
     def need_update(self) -> bool:
         remote_date = self.service.remote_publish_date()
@@ -102,6 +104,77 @@ class DataCLI:
             "instruments_path": str(summary.instruments_path),
             "cache_path": str(summary.cache_path),
         }
+
+    def sync_market(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        summary = self.feed_sync.sync_market(start_date=start_date, end_date=end_date, limit=limit)
+        return {
+            "feed_type": summary.feed_type,
+            "as_of_date": summary.as_of_date,
+            "output_path": str(summary.output_path),
+            "manifest_path": str(summary.manifest_path),
+            "record_count": summary.record_count,
+            "coverage_ratio": summary.coverage_ratio,
+            "eligible_for_daily_run": summary.eligible_for_daily_run,
+            "validation_status": summary.validation_status,
+            "validation_errors": "|".join(summary.validation_errors),
+        }
+
+    def sync_fundamentals(
+        self,
+        as_of_date: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        summary = self.feed_sync.sync_fundamentals(as_of_date=as_of_date, limit=limit)
+        return {
+            "feed_type": summary.feed_type,
+            "as_of_date": summary.as_of_date,
+            "output_path": str(summary.output_path),
+            "manifest_path": str(summary.manifest_path),
+            "record_count": summary.record_count,
+            "coverage_ratio": summary.coverage_ratio,
+            "eligible_for_daily_run": summary.eligible_for_daily_run,
+            "validation_status": summary.validation_status,
+            "validation_errors": "|".join(summary.validation_errors),
+        }
+
+    def sync_events(
+        self,
+        as_of_date: str | None = None,
+        lookback_days: int = 3,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        summary = self.feed_sync.sync_events(as_of_date=as_of_date, lookback_days=lookback_days, limit=limit)
+        return {
+            "feed_type": summary.feed_type,
+            "as_of_date": summary.as_of_date,
+            "output_path": str(summary.output_path),
+            "manifest_path": str(summary.manifest_path),
+            "record_count": summary.record_count,
+            "coverage_ratio": summary.coverage_ratio,
+            "eligible_for_daily_run": summary.eligible_for_daily_run,
+            "validation_status": summary.validation_status,
+            "validation_errors": "|".join(summary.validation_errors),
+        }
+
+    def verify_freshness(self, as_of_date: str | None = None) -> dict[str, object]:
+        summary = self.feed_sync.verify_freshness(as_of_date=as_of_date)
+        return {
+            "as_of_date": summary.as_of_date,
+            "eligible_for_daily_run": summary.eligible_for_daily_run,
+            "validation_status": summary.validation_status,
+            "validation_errors": "|".join(summary.validation_errors),
+            "manifest_path": str(summary.manifest_path),
+            "manifest_paths": "|".join(str(path) for path in summary.manifest_paths),
+            "fetched_at": summary.fetched_at,
+        }
+
+    def show_manifest(self, as_of_date: str | None = None) -> dict[str, object]:
+        return self.feed_sync.show_manifest(as_of_date=as_of_date)
 
     def _select_probe_result(self, proxy: str) -> ProbeResult:
         normalized = proxy.upper()

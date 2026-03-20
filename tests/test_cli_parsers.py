@@ -122,6 +122,27 @@ class CLIParserTests(TestCase):
         self.assertEqual(args.data_command, "sync-akshare")
         self.assertEqual(args.limit, 8)
 
+    def test_roll_cli_accepts_data_sync_market(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["data", "sync-market", "--end-date", "2026-03-20"])
+        self.assertEqual(args.command, "data")
+        self.assertEqual(args.data_command, "sync-market")
+        self.assertEqual(args.end_date, "2026-03-20")
+
+    def test_roll_cli_accepts_data_sync_fundamentals(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["data", "sync-fundamentals", "--date", "2026-03-20"])
+        self.assertEqual(args.command, "data")
+        self.assertEqual(args.data_command, "sync-fundamentals")
+        self.assertEqual(args.date, "2026-03-20")
+
+    def test_roll_cli_accepts_data_verify_freshness(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["data", "verify-freshness", "--date", "2026-03-20"])
+        self.assertEqual(args.command, "data")
+        self.assertEqual(args.data_command, "verify-freshness")
+        self.assertEqual(args.date, "2026-03-20")
+
     def test_roll_cli_accepts_refresh_sse180(self) -> None:
         parser = build_roll_parser()
         args = parser.parse_args(["data", "refresh-sse180", "--as-of-date", "2026-03-20"])
@@ -166,8 +187,13 @@ class CLIParserTests(TestCase):
             app = mock_app_cls.return_value
             app.daily_run.return_value = {
                 "refresh_info": {"instrument_count": 180},
+                "market_info": {"written_csv": 180},
+                "fundamentals_info": {"record_count": 300},
+                "events_info": {"record_count": 300},
+                "freshness_info": {"eligible_for_daily_run": True},
                 "sync_info": {"written_csv": 180},
                 "train_info": {"task_count": 1},
+                "manifest_dir": "/tmp/manifests/2026-03-20",
                 "selection_dir": "/tmp/selection",
                 "recommendations_csv": "/tmp/a.csv",
                 "recommendation_report_md": "/tmp/a.md",
@@ -186,3 +212,23 @@ class CLIParserTests(TestCase):
         self.assertEqual(result, 0)
         self.assertIn("latest_recommendation_report_html=/tmp/latest.html", stdout.getvalue())
         self.assertIn("latest_recommendation_spotlight_html=/tmp/latest-spot.html", stdout.getvalue())
+
+    def test_roll_main_daily_run_handles_skip(self) -> None:
+        with patch("qlib_assistant_refactor.roll_cli.RollingTrader") as mock_app_cls:
+            app = mock_app_cls.return_value
+            app.daily_run.return_value = {
+                "market_info": {"written_csv": 180},
+                "fundamentals_info": {"record_count": 300},
+                "events_info": {"record_count": 300},
+                "freshness_info": {"eligible_for_daily_run": False},
+                "daily_run_skipped": True,
+                "skip_reason": "missing_manifest:events",
+                "manifest_dir": "/tmp/manifests/2026-03-20",
+                "selection_dir": None,
+            }
+            with patch("sys.stdout", new_callable=StringIO) as stdout:
+                result = roll_main(["daily-run"])
+
+        self.assertEqual(result, 0)
+        self.assertIn("daily_run_skipped=True", stdout.getvalue())
+        self.assertIn("manifest_dir=/tmp/manifests/2026-03-20", stdout.getvalue())

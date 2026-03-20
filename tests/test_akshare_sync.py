@@ -1,6 +1,7 @@
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -128,3 +129,17 @@ class AkshareSyncTests(TestCase):
             self.assertTrue(path.exists())
             rows = path.read_text(encoding="utf-8").splitlines()
             self.assertEqual(rows[0], "SH600000\t2026-03-19\t2026-03-20")
+
+    def test_iter_symbols_from_qlib_prefers_universe_file_without_qlib(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            provider_uri = Path(tmpdir) / "qlib"
+            instruments_dir = provider_uri / "instruments"
+            instruments_dir.mkdir(parents=True, exist_ok=True)
+            (instruments_dir / "csi300.txt").write_text(
+                "SH600000\t2026-03-19\t2026-03-20\nSH600009\t2026-03-19\t2026-03-20\n",
+                encoding="utf-8",
+            )
+            sync = AkshareDailySync(AppConfig(provider_uri=str(provider_uri), sync_universe="csi300"))
+            with patch("qlib_assistant_refactor.akshare_sync.ensure_qlib", side_effect=RuntimeError("should not call")):
+                symbols = list(sync._iter_symbols_from_qlib())
+            self.assertEqual(symbols, ["SH600000", "SH600009"])

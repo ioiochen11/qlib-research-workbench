@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import html
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 import re
@@ -264,6 +265,8 @@ class ModelCLI:
         )
         if plan.empty:
             return plan
+        target_date = pd.Timestamp(plan["datetime"].iloc[0]).strftime("%Y-%m-%d")
+        plan = self._attach_feed_context(plan, as_of_date=target_date)
         columns = [
             "datetime",
             "validation_date",
@@ -288,6 +291,18 @@ class ModelCLI:
             "validation_status",
             "validation_note",
             "price_source",
+            "fundamental_risk_tag",
+            "valuation_tag",
+            "fundamental_summary",
+            "event_risk_tag",
+            "notice_summary",
+            "news_sentiment",
+            "news_summary",
+            "data_as_of_date",
+            "data_fetched_at",
+            "data_sources",
+            "data_validation_status",
+            "data_gate_status",
         ]
         return plan.loc[:, columns]
 
@@ -421,6 +436,8 @@ class ModelCLI:
         ]
         if max_price is not None:
             lines.append(f"- 价格上限：`{max_price:.2f}`")
+        lines.extend(["", "## 数据可信度摘要", ""])
+        lines.extend(self._credibility_lines(str(target_date)))
         if sheet.empty:
             lines.extend(["", "没有符合条件的推荐结果。"])
             return "\n".join(lines) + "\n"
@@ -476,6 +493,16 @@ class ModelCLI:
             "验证说明",
         ]
         lines.extend(["", "## 推荐明细", "", self._markdown_table(table)])
+        lines.extend(
+            [
+                "",
+                "## 结构化标签摘要",
+                "",
+                f"- 财报风险标签：`{self._join_unique_labels(sheet.get('fundamental_risk_tag', pd.Series(dtype=object)))}`",
+                f"- 公告/事件风险标签：`{self._join_unique_labels(sheet.get('event_risk_tag', pd.Series(dtype=object)))}`",
+                f"- 新闻情绪：`{self._join_unique_labels(sheet.get('news_sentiment', pd.Series(dtype=object)))}`",
+            ]
+        )
 
         first = sheet.iloc[0]
         candidate_name = str(first["name"]).strip()
@@ -495,6 +522,9 @@ class ModelCLI:
                 f"- 止盈二：`{float(first['take_profit_2']):.4f}`",
                 f"- 验证状态：`{self._zh_validation_status(str(first['validation_status']))}`",
                 f"- 验证说明：`{self._zh_validation_note(str(first['validation_note']))}`",
+                f"- 财报摘要：`{str(first.get('fundamental_summary', '暂无有效财报摘要'))}`",
+                f"- 公告摘要：`{str(first.get('notice_summary', '近三日无重点公告'))}`",
+                f"- 新闻摘要：`{str(first.get('news_summary', '近三日无重点新闻'))}`",
             ]
         )
         return "\n".join(lines) + "\n"
@@ -543,6 +573,7 @@ class ModelCLI:
             str(sheet["datetime"].iloc[0]) if not sheet.empty else "unknown"
         )
         title = f"推荐验证日报 - {target_date}"
+        credibility_items = self._credibility_lines(str(target_date))
         status_counts = (
             sheet["validation_status"].fillna("unknown").value_counts().sort_index()
             if not sheet.empty
@@ -592,6 +623,7 @@ class ModelCLI:
                     self._summary_card("最高平均分", f"{float(sheet['avg_score'].max()):.4f}"),
                     self._summary_card("平均平均分", f"{float(sheet['avg_score'].mean()):.4f}"),
                     self._summary_card("验证日期", html.escape(str(sheet['validation_date'].iloc[0]))),
+                    self._summary_card("门禁状态", html.escape(str(sheet.get('data_gate_status', pd.Series(['未知'])).iloc[0]))),
                 ]
             )
 
@@ -599,6 +631,9 @@ class ModelCLI:
             self._summary_card(self._zh_validation_status(status), str(int(count)), compact=True)
             for status, count in status_counts.items()
         ) or self._summary_card("状态", "无结果", compact=True)
+        credibility_html = "".join(
+            f"<li>{html.escape(item.replace('- ', '', 1).replace('`', ''))}</li>" for item in credibility_items
+        )
 
         table_html = self._recommendation_table_html(sheet)
         return f"""<!DOCTYPE html>
@@ -770,6 +805,7 @@ class ModelCLI:
     .badge.missing_validation_prices {{ background: #f6ecd8; color: var(--warn); }}
     .muted {{ color: var(--muted); }}
     .small {{ font-size: 12px; color: var(--muted); }}
+    .credibility-list {{ margin: 0; padding-left: 18px; line-height: 1.8; }}
     @media (max-width: 720px) {{
       .page {{ padding: 20px 14px 40px; }}
       .hero {{ padding: 20px; border-radius: 20px; }}
@@ -784,6 +820,14 @@ class ModelCLI:
       <p class="subtitle">这是一份便于人工核对的推荐验证日报，用来检查推荐名单、计划买入区间与下一交易日的真实价格行为是否一致。</p>
       <div class="cards">
         {''.join(summary_cards)}
+      </div>
+    </section>
+    <section>
+      <h2>数据可信度摘要</h2>
+      <div class="card">
+        <ul class="credibility-list">
+          {credibility_html}
+        </ul>
       </div>
     </section>
     <section>
@@ -857,9 +901,14 @@ class ModelCLI:
         ]
         if max_price is not None:
             lines.append(f"- 价格上限：`{max_price:.2f}`")
+        lines.extend(["", "## 数据可信度摘要", ""])
+        lines.extend(self._credibility_lines(str(target_date)))
         if sheet.empty:
             lines.extend(["", "没有符合条件的候选股票。"])
             return "\n".join(lines) + "\n"
+
+        if "data_gate_status" in sheet.columns and str(sheet["data_gate_status"].iloc[0]) != "通过":
+            lines.extend(["", "## 正式出报状态", "", "本日不具备正式推荐条件，以下内容仅供内部排查和调试。"])
 
         lines.extend(
             [
@@ -888,6 +937,9 @@ class ModelCLI:
                     f"- 信号解读：`{self._zh_signal_reason(str(row['signal_reason']))}`",
                     f"- 当前验证状态：`{self._zh_validation_status(str(row['validation_status']))}`",
                     f"- 验证说明：`{self._zh_validation_note(str(row['validation_note']))}`",
+                    f"- 财报摘要：`{str(row.get('fundamental_summary', '暂无有效财报摘要'))}`",
+                    f"- 最近三日公告：`{str(row.get('notice_summary', '近三日无重点公告'))}`",
+                    f"- 最近三日新闻：`{str(row.get('news_summary', '近三日无重点新闻'))}`",
                     f"- 观察重点：`{self._validation_focus(row)}`",
                 ]
             )
@@ -934,6 +986,7 @@ class ModelCLI:
             max_price=max_price,
         )
         target_date = date or (str(sheet["datetime"].iloc[0]) if not sheet.empty else "unknown")
+        credibility_items = self._credibility_lines(str(target_date))
         cards = []
         for _, row in sheet.head(limit).iterrows():
             candidate_name = str(row.get("name", "")).strip()
@@ -957,6 +1010,9 @@ class ModelCLI:
     <li><strong>信号解读：</strong>{signal_reason}</li>
     <li><strong>验证状态：</strong>{validation_status}</li>
     <li><strong>验证说明：</strong>{validation_note}</li>
+    <li><strong>财报摘要：</strong>{fundamental_summary}</li>
+    <li><strong>最近三日公告：</strong>{notice_summary}</li>
+    <li><strong>最近三日新闻：</strong>{news_summary}</li>
     <li><strong>观察重点：</strong>{validation_focus}</li>
   </ul>
 </article>
@@ -974,11 +1030,20 @@ class ModelCLI:
                     signal_reason=html.escape(self._zh_signal_reason(str(row["signal_reason"]))),
                     validation_status=html.escape(self._zh_validation_status(str(row["validation_status"]))),
                     validation_note=html.escape(self._zh_validation_note(str(row["validation_note"]))),
+                    fundamental_summary=html.escape(str(row.get("fundamental_summary", "暂无有效财报摘要"))),
+                    notice_summary=html.escape(str(row.get("notice_summary", "近三日无重点公告"))),
+                    news_summary=html.escape(str(row.get("news_summary", "近三日无重点新闻"))),
                     validation_focus=html.escape(self._validation_focus(row)),
                 )
             )
         if not cards:
             cards.append('<article class="spot-card"><p>没有符合条件的候选股票。</p></article>')
+        credibility_html = "".join(
+            f"<li>{html.escape(item.replace('- ', '', 1).replace('`', ''))}</li>" for item in credibility_items
+        )
+        gate_banner = ""
+        if not sheet.empty and "data_gate_status" in sheet.columns and str(sheet["data_gate_status"].iloc[0]) != "通过":
+            gate_banner = '<section class="warn-banner">本日不具备正式推荐条件，以下内容仅供内部排查和调试。</section>'
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1065,6 +1130,9 @@ class ModelCLI:
     .spot-grid strong {{ font-size: 16px; }}
     .spot-list {{ margin: 18px 0 0; padding-left: 18px; line-height: 1.75; }}
     .spot-list li + li {{ margin-top: 4px; }}
+    .credibility {{ margin-top: 20px; background: rgba(255,255,255,0.78); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }}
+    .credibility ul {{ margin: 0; padding-left: 18px; line-height: 1.8; }}
+    .warn-banner {{ margin-top: 20px; border: 1px solid rgba(158, 77, 45, 0.22); background: #f9eadf; color: #7f3a20; border-radius: 18px; padding: 14px 16px; font-weight: 600; }}
   </style>
 </head>
 <body>
@@ -1077,7 +1145,13 @@ class ModelCLI:
         <div class="pill">股票池：{html.escape(self._zh_stock_pool(self.config.stock_pool))}</div>
         <div class="pill">价格上限：{html.escape("不限" if max_price is None else f"{max_price:.2f} 元")}</div>
       </div>
+      <div class="credibility">
+        <ul>
+          {credibility_html}
+        </ul>
+      </div>
     </section>
+    {gate_banner}
     <section class="spots">
       {''.join(cards)}
     </section>
@@ -1921,6 +1995,122 @@ class ModelCLI:
 </table>
 """.format(rows="".join(rows))
 
+    def _attach_feed_context(self, sheet: pd.DataFrame, as_of_date: str) -> pd.DataFrame:
+        if sheet.empty:
+            return sheet
+        enriched = sheet.copy()
+        fundamentals = self._load_feed_frame("fundamentals", as_of_date)
+        events = self._load_feed_frame("events", as_of_date)
+        manifest_market = self._load_feed_manifest("market", as_of_date)
+        manifest_fundamentals = self._load_feed_manifest("fundamentals", as_of_date)
+        manifest_events = self._load_feed_manifest("events", as_of_date)
+        manifest_freshness = self._load_feed_manifest("freshness", as_of_date)
+
+        if not fundamentals.empty and "instrument" in fundamentals.columns:
+            keep = [
+                "instrument",
+                "fundamental_risk_tag",
+                "valuation_tag",
+                "fundamental_summary",
+            ]
+            enriched = enriched.merge(fundamentals[[col for col in keep if col in fundamentals.columns]], on="instrument", how="left")
+        if not events.empty and "instrument" in events.columns:
+            keep = [
+                "instrument",
+                "event_risk_tag",
+                "notice_summary",
+                "news_sentiment",
+                "news_summary",
+            ]
+            enriched = enriched.merge(events[[col for col in keep if col in events.columns]], on="instrument", how="left")
+
+        data_sources = " / ".join(
+            [
+                item
+                for item in [
+                    str(manifest_market.get("source_name", "")),
+                    str(manifest_fundamentals.get("source_name", "")),
+                    str(manifest_events.get("source_name", "")),
+                ]
+                if item
+            ]
+        )
+        data_fetched_at = manifest_freshness.get("fetched_at") or manifest_market.get("fetched_at") or ""
+        data_validation_status = manifest_freshness.get("validation_status") or manifest_market.get("validation_status") or "unknown"
+        data_gate_status = "通过" if bool(manifest_freshness.get("eligible_for_daily_run")) else "未通过"
+        enriched["fundamental_risk_tag"] = enriched.get("fundamental_risk_tag", pd.Series(dtype=object)).fillna("财报信息有限")
+        enriched["valuation_tag"] = enriched.get("valuation_tag", pd.Series(dtype=object)).fillna("估值信息有限")
+        enriched["fundamental_summary"] = enriched.get("fundamental_summary", pd.Series(dtype=object)).fillna("暂无有效财报摘要")
+        enriched["event_risk_tag"] = enriched.get("event_risk_tag", pd.Series(dtype=object)).fillna("事件中性")
+        enriched["notice_summary"] = enriched.get("notice_summary", pd.Series(dtype=object)).fillna("近三日无重点公告")
+        enriched["news_sentiment"] = enriched.get("news_sentiment", pd.Series(dtype=object)).fillna("中性")
+        enriched["news_summary"] = enriched.get("news_summary", pd.Series(dtype=object)).fillna("近三日无重点新闻")
+        enriched["data_as_of_date"] = as_of_date
+        enriched["data_fetched_at"] = data_fetched_at
+        enriched["data_sources"] = data_sources or "本地校验快照"
+        enriched["data_validation_status"] = data_validation_status
+        enriched["data_gate_status"] = data_gate_status
+        return enriched
+
+    def _load_feed_frame(self, feed_type: str, as_of_date: str) -> pd.DataFrame:
+        sync_dir = Path(self.config.sync_dir).expanduser()
+        if feed_type == "fundamentals":
+            dated = sync_dir / "gold" / "fundamentals" / f"fundamentals_{as_of_date}.csv"
+            fallback = sync_dir / "gold" / "fundamentals" / "latest_fundamentals.csv"
+        elif feed_type == "events":
+            dated = sync_dir / "gold" / "events" / f"events_{as_of_date}.csv"
+            fallback = sync_dir / "gold" / "events" / "latest_events.csv"
+        elif feed_type == "market":
+            dated = sync_dir / "gold" / "market" / f"validated_snapshot_{as_of_date}.csv"
+            fallback = dated
+        else:
+            return pd.DataFrame()
+        for path in [dated, fallback]:
+            if path.exists():
+                try:
+                    return pd.read_csv(path)
+                except Exception:
+                    continue
+        return pd.DataFrame()
+
+    def _load_feed_manifest(self, feed_type: str, as_of_date: str) -> dict[str, object]:
+        path = Path(self.config.sync_dir).expanduser() / "manifests" / as_of_date / f"{feed_type}.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _credibility_lines(self, as_of_date: str) -> list[str]:
+        freshness = self._load_feed_manifest("freshness", as_of_date)
+        market = self._load_feed_manifest("market", as_of_date)
+        fundamentals = self._load_feed_manifest("fundamentals", as_of_date)
+        events = self._load_feed_manifest("events", as_of_date)
+        source_text = " / ".join(
+            item
+            for item in [
+                str(market.get("source_name", "")),
+                str(fundamentals.get("source_name", "")),
+                str(events.get("source_name", "")),
+            ]
+            if item
+        ) or "本地校验快照"
+        gate_text = "通过" if bool(freshness.get("eligible_for_daily_run")) else "未通过"
+        status_text = self._zh_data_validation_status(str(freshness.get("validation_status", "unknown")))
+        fetched_at = str(freshness.get("fetched_at") or market.get("fetched_at") or "")
+        errors = freshness.get("validation_errors") or []
+        lines = [
+            f"- 数据日期：`{as_of_date}`",
+            f"- 抓取时间：`{fetched_at or '未知'}`",
+            f"- 使用来源：`{source_text}`",
+            f"- 校验状态：`{status_text}`",
+            f"- 正式出报门禁：`{gate_text}`",
+        ]
+        if errors:
+            lines.append(f"- 门禁说明：`{' | '.join(str(item) for item in errors[:5])}`")
+        return lines
+
     @staticmethod
     def _candidate_fetch_limit(limit: int, max_price: float | None) -> int:
         if max_price is None:
@@ -1952,6 +2142,18 @@ class ModelCLI:
             ("validation_status", "验证状态"),
             ("validation_note", "验证说明"),
             ("price_source", "价格来源"),
+            ("fundamental_risk_tag", "财报风险标签"),
+            ("valuation_tag", "估值标签"),
+            ("fundamental_summary", "财报摘要"),
+            ("event_risk_tag", "公告风险标签"),
+            ("notice_summary", "近三日公告摘要"),
+            ("news_sentiment", "新闻情绪"),
+            ("news_summary", "近三日新闻摘要"),
+            ("data_as_of_date", "数据日期"),
+            ("data_fetched_at", "抓取时间"),
+            ("data_sources", "使用来源"),
+            ("data_validation_status", "校验状态"),
+            ("data_gate_status", "正式出报门禁"),
         ]
         display = pd.DataFrame(columns=[label for _, label in columns]) if sheet.empty else sheet.copy()
         if not display.empty:
@@ -1959,6 +2161,8 @@ class ModelCLI:
             display["validation_status"] = display["validation_status"].map(self._zh_validation_status)
             display["validation_note"] = display["validation_note"].map(self._zh_validation_note)
             display["price_source"] = display["price_source"].map(self._zh_price_source)
+            if "data_validation_status" in display.columns:
+                display["data_validation_status"] = display["data_validation_status"].map(self._zh_data_validation_status)
             for key in [
                 "entry_zone_hit",
                 "breakout_hit",
@@ -2058,6 +2262,24 @@ class ModelCLI:
             "qlib_raw_by_factor": "Qlib 原始价格换算",
         }
         return mapping.get(source, source)
+
+    @staticmethod
+    def _zh_data_validation_status(status: str) -> str:
+        mapping = {
+            "passed": "校验通过",
+            "failed": "校验失败",
+            "unknown": "未知",
+        }
+        return mapping.get(status, status)
+
+    @staticmethod
+    def _join_unique_labels(series: pd.Series) -> str:
+        values = []
+        for item in series.fillna("").astype(str):
+            normalized = item.strip()
+            if normalized and normalized not in values:
+                values.append(normalized)
+        return "、".join(values) if values else "暂无"
 
     def _validation_focus(self, row: pd.Series) -> str:
         action_plan = str(row.get("action_plan", ""))

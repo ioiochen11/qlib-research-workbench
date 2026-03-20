@@ -22,6 +22,8 @@ What it gives you today:
 
 - Remote data probing, download, extraction, and verification
 - AkShare-based daily sync so you can refresh local CN daily bars without waiting for a remote package update
+- Multi-feed post-close sync with raw / gold / manifest layers for market, fundamentals, and events
+- Freshness gating so invalid or stale feeds skip the formal daily report instead of poisoning the latest output
 - Optional SSE180 universe refresh from AkShare with a local cached fallback
 - Local Qlib initialization and feature-read smoke checks
 - Rolling-task training with sample-level `<= 30 元` price filtering
@@ -74,6 +76,10 @@ If you want to work on `上证180`, refresh that universe first; otherwise the d
 ```bash
 .venv/bin/python roll.py data refresh-sse180
 .venv/bin/python roll.py data sync-akshare --start-date 2026-03-19 --end-date 2026-03-20
+.venv/bin/python roll.py data sync-market --start-date 2026-03-19 --end-date 2026-03-20
+.venv/bin/python roll.py data sync-fundamentals --date 2026-03-20
+.venv/bin/python roll.py data sync-events --date 2026-03-20
+.venv/bin/python roll.py data verify-freshness --date 2026-03-20
 ```
 
 Validate that Qlib can read the extracted dataset:
@@ -114,6 +120,11 @@ python3 -m qlib_assistant_refactor qlib-check
 python3 roll.py data update --proxy A
 python3 roll.py data refresh-sse180
 python3 roll.py data sync-akshare
+python3 roll.py data sync-market
+python3 roll.py data sync-fundamentals
+python3 roll.py data sync-events
+python3 roll.py data verify-freshness
+python3 roll.py data show-manifest --date 2026-03-20
 ```
 
 Training:
@@ -160,7 +171,10 @@ If you want a more analyst-style summary focused only on the most important cand
 
 `daily-run` ties together:
 
-- `data sync-akshare`
+- `data sync-market`
+- `data sync-fundamentals`
+- `data sync-events`
+- `data verify-freshness`
 - `train start`
 - `model report`
 - `model save-recommendations`
@@ -168,6 +182,8 @@ If you want a more analyst-style summary focused only on the most important cand
 - `model save-recommendation-html`
 
 It writes both dated files and stable `latest_*` files under `~/.qlibAssistant/analysis`, so a local automation can keep replacing the latest daily brief without removing older dated archives. When the configured stock pool is `上证180`, it also refreshes the local `sse180.txt` universe file first.
+
+If the configured freshness gate fails, `daily-run` now skips training and formal report generation. In that case it keeps the previous `latest_*` artifacts untouched and writes the reason into the manifest folder under `~/.qlibAssistant/daily_sync/manifests/YYYY-MM-DD/`.
 
 Backups:
 
@@ -209,6 +225,9 @@ make clean-local
 ## Runtime Paths
 
 - Local Qlib data: `~/.qlib/qlib_data/cn_data`
+- Raw structured sync cache: `~/.qlibAssistant/daily_sync/raw`
+- Validated gold feeds: `~/.qlibAssistant/daily_sync/gold`
+- Feed manifests: `~/.qlibAssistant/daily_sync/manifests`
 - MLflow experiments: `~/.qlibAssistant/mlruns`
 - Analysis outputs: `~/.qlibAssistant/analysis`
 - Backup archives: `~/model_pkl`

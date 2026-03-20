@@ -23,9 +23,20 @@ python3 roll.py data status
 python3 roll.py data update --proxy A
 python3 roll.py data refresh-sse180
 python3 roll.py data sync-akshare --start-date 2026-03-19 --end-date 2026-03-20
+python3 roll.py data sync-market --start-date 2026-03-19 --end-date 2026-03-20
+python3 roll.py data sync-fundamentals --date 2026-03-20
+python3 roll.py data sync-events --date 2026-03-20
+python3 roll.py data verify-freshness --date 2026-03-20
+python3 roll.py data show-manifest --date 2026-03-20
 python3 roll.py data qlib-check
 python3 roll.py daily-run
 ```
+
+`sync-market` writes raw source snapshots under `raw/market/`, validates AkShare against Eastmoney, and only then updates the local Qlib provider and `gold/market/`.
+
+`sync-fundamentals` and `sync-events` write structured feed snapshots under `gold/fundamentals/` and `gold/events/`.
+
+`verify-freshness` checks the configured post-close gate. If a required feed is stale, invalid, or missing, `daily-run` will skip formal training and report generation.
 
 ## Training
 
@@ -69,7 +80,9 @@ python3 roll.py daily-run
 
 `save-recommendations` now exports a fully Chinese CSV. `save-recommendation-report` and `save-recommendation-html` also use Chinese labels, validation states, and notes.
 
-`daily-run` is the post-close one-shot pipeline for the default `沪深300 + 30 元以下` workflow. It syncs AkShare data, trains the model, generates the selection report, and writes both dated and `latest_*` recommendation artifacts. If you switch the configured stock pool to `上证180`, it will refresh the local `sse180.txt` universe file first.
+`daily-run` is the post-close one-shot pipeline for the default `沪深300 + 30 元以下` workflow. It syncs validated market / fundamentals / events feeds, runs the freshness gate, trains the model, generates the selection report, and writes both dated and `latest_*` recommendation artifacts. If you switch the configured stock pool to `上证180`, it will refresh the local `sse180.txt` universe file first.
+
+When the freshness gate fails, `daily-run` exits without touching the previous `latest_*` files. The detailed reason is stored in the daily manifest directory so you can inspect why the formal report was skipped.
 
 ## Backup
 

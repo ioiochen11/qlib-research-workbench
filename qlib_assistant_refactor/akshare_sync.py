@@ -146,13 +146,19 @@ class AkshareDailySync:
         return symbols
 
     def _iter_symbols_from_qlib(self) -> Iterable[str]:
-        ensure_qlib(self.config)
-        from qlib.data import D
+        from_file = self._iter_symbols_from_universe_file()
+        if from_file:
+            return from_file
+        try:
+            ensure_qlib(self.config)
+            from qlib.data import D
 
-        latest = latest_local_data_date(self.config)
-        instruments = D.list_instruments(D.instruments(self.config.sync_universe), latest, latest)
+            latest = latest_local_data_date(self.config)
+            instruments = D.list_instruments(D.instruments(self.config.sync_universe), latest, latest)
+        except Exception:
+            return []
         if not instruments:
-            return self._iter_symbols_from_universe_file()
+            return []
         if isinstance(instruments, dict):
             return sorted(instruments.keys())
         return sorted(instruments)

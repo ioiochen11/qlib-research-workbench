@@ -250,6 +250,18 @@ class ModelCLITests(TestCase):
                     "validation_status": ["buy_zone_touched"],
                     "validation_note": ["day1_range_touched_10.00_10.10"],
                     "price_source": ["akshare_sync_csv"],
+                    "fundamental_risk_tag": ["基本面中性"],
+                    "valuation_tag": ["估值信息有限"],
+                    "fundamental_summary": ["报告期 20251231；营收同比 10.00%"],
+                    "event_risk_tag": ["事件中性"],
+                    "notice_summary": ["近三日无重点公告"],
+                    "news_sentiment": ["中性"],
+                    "news_summary": ["近三日无重点新闻"],
+                    "data_as_of_date": ["2026-03-19"],
+                    "data_fetched_at": ["2026-03-20T16:20:00"],
+                    "data_sources": ["akshare / eastmoney"],
+                    "data_validation_status": ["passed"],
+                    "data_gate_status": ["通过"],
                 }
             )
         )
@@ -257,6 +269,8 @@ class ModelCLITests(TestCase):
         df = cli.recommendation_sheet(limit=1, date="2026-03-19")
         self.assertEqual(df.iloc[0]["validation_status"], "buy_zone_touched")
         self.assertIn("validation_note", df.columns)
+        self.assertIn("fundamental_summary", df.columns)
+        self.assertIn("data_gate_status", df.columns)
 
     def test_entry_plan_filters_by_max_price(self) -> None:
         cli = ModelCLI(AppConfig())
@@ -320,6 +334,7 @@ class ModelCLITests(TestCase):
 
         report = cli.recommendation_report(limit=2, date="2026-03-19")
         self.assertIn("# 推荐验证日报（2026-03-19）", report)
+        self.assertIn("## 数据可信度摘要", report)
         self.assertIn("## 验证摘要", report)
         self.assertIn("美的集团", report)
         self.assertIn("触及买入区间", report)
@@ -434,6 +449,7 @@ class ModelCLITests(TestCase):
         report = cli.recommendation_html(limit=1, date="2026-03-19")
         self.assertIn("<!DOCTYPE html>", report)
         self.assertIn("推荐验证日报 - 2026-03-19", report)
+        self.assertIn("数据可信度摘要", report)
         self.assertIn("美的集团", report)
         self.assertIn("触及买入区间", report)
 
@@ -481,9 +497,80 @@ class ModelCLITests(TestCase):
 
         report = cli.recommendation_spotlight(limit=1, date="2026-03-20")
         self.assertIn("# 前三候选解读（2026-03-20）", report)
+        self.assertIn("## 数据可信度摘要", report)
         self.assertIn("光伏设备", report)
         self.assertIn("观察重点", report)
         self.assertIn("隆基绿能", report)
+
+    def test_attach_feed_context_merges_structured_feeds(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            sync_dir = Path(tmpdir)
+            manifest_dir = sync_dir / "manifests" / "2026-03-20"
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+            (sync_dir / "gold" / "fundamentals").mkdir(parents=True, exist_ok=True)
+            (sync_dir / "gold" / "events").mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {
+                        "instrument": "SH600000",
+                        "fundamental_risk_tag": "基本面中性",
+                        "valuation_tag": "估值信息有限",
+                        "fundamental_summary": "报告期 20251231；营收同比 10.00%",
+                    }
+                ]
+            ).to_csv(sync_dir / "gold" / "fundamentals" / "fundamentals_2026-03-20.csv", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "instrument": "SH600000",
+                        "event_risk_tag": "事件中性",
+                        "notice_summary": "近三日无重点公告",
+                        "news_sentiment": "中性",
+                        "news_summary": "近三日无重点新闻",
+                    }
+                ]
+            ).to_csv(sync_dir / "gold" / "events" / "events_2026-03-20.csv", index=False)
+            for feed_name, source_name in [
+                ("market", "akshare+eastmoney"),
+                ("fundamentals", "eastmoney_individual"),
+                ("events", "eastmoney_notice+eastmoney_news"),
+                ("freshness", "market+fundamentals+events"),
+            ]:
+                (manifest_dir / f"{feed_name}.json").write_text(
+                    __import__("json").dumps(
+                        {
+                            "feed_type": feed_name,
+                            "source_name": source_name,
+                            "as_of_date": "2026-03-20",
+                            "fetched_at": "2026-03-20T16:30:00",
+                            "coverage_ratio": 1.0,
+                            "record_count": 1,
+                            "validation_status": "passed",
+                            "validation_errors": [],
+                            "eligible_for_daily_run": True,
+                            "output_path": "",
+                            "raw_paths": [],
+                            "extra": {},
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+
+            cli = ModelCLI(AppConfig(sync_dir=tmpdir))
+            sheet = pd.DataFrame(
+                [
+                    {
+                        "datetime": "2026-03-20",
+                        "instrument": "SH600000",
+                        "name": "浦发银行",
+                    }
+                ]
+            )
+            enriched = cli._attach_feed_context(sheet, as_of_date="2026-03-20")
+            self.assertEqual(enriched.iloc[0]["fundamental_risk_tag"], "基本面中性")
+            self.assertEqual(enriched.iloc[0]["event_risk_tag"], "事件中性")
+            self.assertEqual(enriched.iloc[0]["data_gate_status"], "通过")
 
     def test_save_recommendation_spotlight_html_writes_file(self) -> None:
         with TemporaryDirectory() as tmpdir:

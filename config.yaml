@@ -27,6 +27,30 @@ rec_filter:
   - icir: -1.0
   - rankic: -1.0
   - rankicir: -1.0
+market_close_cutoff: "15:30"
+required_feeds:
+  - market
+  - fundamentals
+  - events
+max_feed_age_hours:
+  market: 8
+  fundamentals: 24
+  events: 24
+strict_report_gate: true
+source_priority:
+  market:
+    - akshare
+    - eastmoney
+  fundamentals:
+    - eastmoney_individual
+    - eastmoney_yjbb
+    - eastmoney_yjyg
+    - eastmoney_yjkb
+  events:
+    - eastmoney_notice
+    - eastmoney_news
+min_universe_coverage: 0.9
+price_conflict_tolerance: 0.03
 asset_url: "https://github.com/chenditc/investment_data/releases/latest/download/qlib_bin.tar.gz"
 mirrors:
   - name: gh-proxy
