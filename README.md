@@ -170,3 +170,4 @@ make clean-local
 - 命令参考：[docs/COMMANDS.md](docs/COMMANDS.md)
 - 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 开发说明：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- 协作说明：[CONTRIBUTING.md](CONTRIBUTING.md)
