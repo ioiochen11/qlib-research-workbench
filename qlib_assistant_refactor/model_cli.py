@@ -2158,6 +2158,7 @@ class ModelCLI:
         display = pd.DataFrame(columns=[label for _, label in columns]) if sheet.empty else sheet.copy()
         if not display.empty:
             display["action_plan"] = display["action_plan"].map(self._zh_action_plan)
+            display["signal_reason"] = display["signal_reason"].map(self._zh_signal_reason)
             display["validation_status"] = display["validation_status"].map(self._zh_validation_status)
             display["validation_note"] = display["validation_note"].map(self._zh_validation_note)
             display["price_source"] = display["price_source"].map(self._zh_price_source)

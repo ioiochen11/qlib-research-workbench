@@ -386,6 +386,7 @@ class ModelCLITests(TestCase):
             self.assertIn("股票代码", content.columns)
             self.assertIn("操作计划", content.columns)
             self.assertEqual(content.iloc[0]["验证状态"], "触及买入区间")
+            self.assertEqual(content.iloc[0]["信号说明"], "模型平均分 0.0300；价格仍在 10 日线之上，偏向回踩型机会")
 
     def test_recommendation_sheet_uses_config_max_price_by_default(self) -> None:
         cli = ModelCLI(AppConfig(max_price=30.0))
