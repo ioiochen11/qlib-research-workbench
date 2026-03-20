@@ -1,76 +1,77 @@
 # qlib-research-workbench
 
 [![CI](https://github.com/ioiochen11/qlib-research-workbench/actions/workflows/ci.yml/badge.svg)](https://github.com/ioiochen11/qlib-research-workbench/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+![Status](https://img.shields.io/badge/status-active-success)
 
-一个围绕原始 [`qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant) 思路做的更适合公开协作和持续演进的量化研究工作台。
+A practical Qlib-based research workbench for validating Chinese market data, training lightweight rolling models, exporting daily selection reports, and running review and backtest workflows.
 
-它现在已经不只是“验证数据能不能下”，而是具备了一条可运行闭环：
+This project started as a focused refactor of [`touhoufan2024/qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant), then grew into a cleaner public-facing repo with a testable CLI, documentation, and CI.
 
-- 数据探测、下载、解压、校验
-- Qlib 本地数据读取
-- 最小训练与实验落盘
-- 保存预测结果聚合
-- 每日选股报表导出
-- 复盘与 TopK 回测
-- `mlruns` 备份与恢复
+If this project is useful, a GitHub star helps a lot.
 
-## 当前状态
+## Why This Repo
 
-这个仓库目前更像一个“可运行、可扩展的研究工作台”，不是对原仓库 1:1 的完整替代品。
+`qlibAssistant` has a strong idea: turn Qlib into a daily research pipeline instead of a one-off notebook. This repo keeps that idea, but reshapes it into a workbench that is easier to validate, extend, and publish.
 
-已经完成的部分：
+What it gives you today:
 
-- 数据链路从原仓库中独立抽出，并支持命令行验证
-- Qlib 初始化和 MLflow 实验管理被统一封装
-- 训练、分析、复盘、回测、备份都有可运行命令
-- 项目已具备包入口、依赖文件、Makefile、文档和测试
+- Remote data probing, download, extraction, and verification
+- Local Qlib initialization and feature-read smoke checks
+- Minimal rolling-task training with experiment persistence
+- Prediction aggregation and daily selection report export
+- Review summaries and top-k backtest reports
+- `mlruns` backup and restore utilities
+- Unit tests, docs, Make targets, and GitHub Actions CI
 
-## 快速开始
+## Quick Start
 
-### 1. 安装基础依赖
+Install the lightweight dependencies:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-如果你要跑 Qlib 训练和分析：
+Install Qlib-related dependencies when you want to run training or model workflows:
 
 ```bash
 python3 -m pip install -r requirements-qlib.txt
 ```
 
-或者直接用项目安装方式：
+Or install the package directly:
 
 ```bash
 python3 -m pip install -e .
 python3 -m pip install -e .[qlib]
 ```
 
-### 2. 探测远端数据
+## First Run
+
+Probe the remote data source:
 
 ```bash
 python3 -m qlib_assistant_refactor probe
 ```
 
-### 3. 查看本地数据状态
+Check local data status:
 
 ```bash
 python3 roll.py data status
 ```
 
-### 4. 用 Qlib 验证本地数据
+Validate that Qlib can read the extracted dataset:
 
 ```bash
 .venv/bin/python roll.py data qlib-check
 ```
 
-### 5. 跑一次最小训练
+Run a minimal training job:
 
 ```bash
 .venv/bin/python roll.py train smoke
 ```
 
-### 6. 产出结果报表
+Generate reports:
 
 ```bash
 .venv/bin/python roll.py model report
@@ -78,9 +79,9 @@ python3 roll.py data status
 .venv/bin/python roll.py model backtest
 ```
 
-## 常用命令
+## Common Commands
 
-### 数据
+Data:
 
 ```bash
 python3 -m qlib_assistant_refactor probe
@@ -90,7 +91,7 @@ python3 -m qlib_assistant_refactor qlib-check
 python3 roll.py data update --proxy A
 ```
 
-### 训练
+Training:
 
 ```bash
 .venv/bin/python roll.py train plan
@@ -99,7 +100,7 @@ python3 roll.py data update --proxy A
 .venv/bin/python roll.py train list-experiments
 ```
 
-### 结果
+Analysis:
 
 ```bash
 .venv/bin/python roll.py model ls --all
@@ -109,7 +110,7 @@ python3 roll.py data update --proxy A
 .venv/bin/python roll.py model backtest
 ```
 
-### 备份
+Backups:
 
 ```bash
 .venv/bin/python roll.py model list-backups
@@ -117,7 +118,7 @@ python3 roll.py data update --proxy A
 .venv/bin/python roll.py model restore
 ```
 
-### Makefile 快捷入口
+Make shortcuts:
 
 ```bash
 make test
@@ -130,44 +131,64 @@ make model-backtest
 make clean-local
 ```
 
-## 目录说明
+## Project Layout
 
-- [`qlib_assistant_refactor/`](qlib_assistant_refactor): 主代码目录
-- [`tests/`](tests): 单元测试
-- [`docs/COMMANDS.md`](docs/COMMANDS.md): 命令参考
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): 模块结构说明
-- [`Makefile`](Makefile): 常用开发命令
-- [`pyproject.toml`](pyproject.toml): 项目元数据和脚本入口
+- [`qlib_assistant_refactor/`](qlib_assistant_refactor): main application code
+- [`tests/`](tests): unit tests
+- [`docs/COMMANDS.md`](docs/COMMANDS.md): CLI reference
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): module-level architecture notes
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md): local development workflow
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): planned next steps
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): contribution guidance
 
-## 输出位置
+## Runtime Paths
 
-- 本地 Qlib 数据：`~/.qlib/qlib_data/cn_data`
-- MLflow 实验：`~/.qlibAssistant/mlruns`
-- 分析结果：`~/.qlibAssistant/analysis`
-- 备份归档：`~/model_pkl`
+- Local Qlib data: `~/.qlib/qlib_data/cn_data`
+- MLflow experiments: `~/.qlibAssistant/mlruns`
+- Analysis outputs: `~/.qlibAssistant/analysis`
+- Backup archives: `~/model_pkl`
 
-## 已验证能力
+## What Has Been Verified
 
-在当前工作区，这些能力已经实际跑通过：
+In the current workspace, these flows have already been run successfully:
 
-- 下载并解压 Qlib A 股数据
-- 读取 `CSI300` 当日特征
-- 训练一个 `Linear + Alpha158` 的最小任务
-- 导出 `top_predictions_*.csv`
-- 导出 `selection_*/` 报表目录
-- 导出 `review/` 和 `backtest/` 结果
-- 打包 `mlruns_YYYY-MM-DD.tar.gz`
+- Full Qlib CN data download and extraction
+- Local `CSI300` feature access through Qlib
+- Minimal `Linear + Alpha158` training run
+- Prediction export to `top_predictions_*.csv`
+- Selection report generation under `selection_*/`
+- Review and backtest summary generation
+- `mlruns_YYYY-MM-DD.tar.gz` archive creation
 
-## 限制与说明
+## Current Scope
 
-- 网络可达性是时变的，`gh-proxy` 和 GitHub 直链并不总是稳定。
-- 当前实现优先保证“可运行、可验证、可测试”，不是对原仓库的全部功能逐字迁移。
-- `pyqlib` 安装较重，建议在项目虚拟环境内使用。
-- 某些环境会出现 `urllib3` 与 `LibreSSL` 的 warning，但不一定影响实际功能。
+This repo is intentionally practical rather than exhaustive.
 
-## 开发文档
+- It prioritizes reproducible workflows over framework abstraction
+- It keeps the original project spirit but does not mirror every original feature one-to-one
+- It is suitable as a personal research base or a starting point for a team-internal tool
+- It is not yet positioned as a production execution engine
 
-- 命令参考：[docs/COMMANDS.md](docs/COMMANDS.md)
-- 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- 开发说明：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- 协作说明：[CONTRIBUTING.md](CONTRIBUTING.md)
+## Roadmap
+
+Planned improvements are tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+Short version:
+
+- Better experiment selection and ranking logic
+- Cleaner packaging and command ergonomics
+- Optional richer reporting outputs
+- More end-to-end smoke coverage
+
+## Notes
+
+- Network reachability can change over time; direct GitHub asset URLs and proxy mirrors are not equally stable.
+- `pyqlib` is relatively heavy, so using a virtual environment is strongly recommended.
+- Some environments show a `urllib3` and `LibreSSL` warning; it does not necessarily block the workflow.
+
+## Docs
+
+- Command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md)
+- Architecture notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Development guide: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+- Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
