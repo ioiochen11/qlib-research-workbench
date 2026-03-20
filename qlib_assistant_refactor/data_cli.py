@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from .akshare_sync import AkshareDailySync
 from .config import AppConfig
 from .data_service import DataService, ProbeResult
 from .qlib_env import provider_uri_path
@@ -69,6 +70,38 @@ class DataCLI:
 
     def verify(self) -> dict[str, object]:
         return self.service.verify_local_dataset()
+
+    def sync_akshare(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        summary = AkshareDailySync(self.config).sync(
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return {
+            "csv_dir": str(summary.csv_dir),
+            "qlib_dir": str(summary.qlib_dir),
+            "start_date": summary.start_date,
+            "end_date": summary.end_date,
+            "symbol_count": summary.symbol_count,
+            "written_csv": summary.written_csv,
+            "dump_mode": summary.dump_mode,
+            "calendar_count": summary.calendar_count,
+        }
+
+    def refresh_sse180_universe(self, as_of_date: str | None = None) -> dict[str, object]:
+        summary = AkshareDailySync(self.config).refresh_sse180_universe(as_of_date=as_of_date)
+        return {
+            "universe_name": summary.universe_name,
+            "source": summary.source,
+            "instrument_count": summary.instrument_count,
+            "instruments_path": str(summary.instruments_path),
+            "cache_path": str(summary.cache_path),
+        }
 
     def _select_probe_result(self, proxy: str) -> ProbeResult:
         normalized = proxy.upper()

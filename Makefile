@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: test probe status verify qlib-check doctor train-plan train-smoke model-top model-report model-review model-backtest model-backup clean-local
+.PHONY: test probe status verify qlib-check doctor refresh-sse180 sync-akshare train-plan train-smoke model-top model-recommendations model-recommendation-report model-recommendation-html model-report model-review model-backtest model-backup daily-run clean-local
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
@@ -23,6 +23,12 @@ doctor:
 	$(PYTHON) roll.py data status
 	$(PYTHON) -m qlib_assistant_refactor verify
 
+refresh-sse180:
+	$(VENV_PYTHON) roll.py data refresh-sse180
+
+sync-akshare:
+	$(VENV_PYTHON) roll.py data sync-akshare
+
 train-plan:
 	$(VENV_PYTHON) roll.py train plan
 
@@ -31,6 +37,15 @@ train-smoke:
 
 model-top:
 	$(VENV_PYTHON) roll.py model top --limit 10
+
+model-recommendations:
+	$(VENV_PYTHON) roll.py model recommendations --limit 10
+
+model-recommendation-report:
+	$(VENV_PYTHON) roll.py model save-recommendation-report --limit 10
+
+model-recommendation-html:
+	$(VENV_PYTHON) roll.py model save-recommendation-html --limit 10
 
 model-report:
 	$(VENV_PYTHON) roll.py model report
@@ -43,6 +58,9 @@ model-backtest:
 
 model-backup:
 	$(VENV_PYTHON) roll.py model backup
+
+daily-run:
+	$(VENV_PYTHON) roll.py daily-run
 
 clean-local:
 	rm -f qlib_bin.tar.gz

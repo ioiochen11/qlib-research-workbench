@@ -6,6 +6,10 @@
 
 A practical Qlib-based research workbench for validating Chinese market data, training lightweight rolling models, exporting daily selection reports, and running review and backtest workflows.
 
+中文说明见 [docs/README_CN.md](docs/README_CN.md)。
+
+The current default workflow is opinionated on purpose: it targets `沪深300` constituents, keeps only `30 元以下` names for both training and recommendation, and generates a fully Chinese daily recommendation brief after the close.
+
 This project started as a focused refactor of [`touhoufan2024/qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant), then grew into a cleaner public-facing repo with a testable CLI, documentation, and CI.
 
 If this project is useful, a GitHub star helps a lot.
@@ -17,9 +21,15 @@ If this project is useful, a GitHub star helps a lot.
 What it gives you today:
 
 - Remote data probing, download, extraction, and verification
+- AkShare-based daily sync so you can refresh local CN daily bars without waiting for a remote package update
+- Optional SSE180 universe refresh from AkShare with a local cached fallback
 - Local Qlib initialization and feature-read smoke checks
-- Minimal rolling-task training with experiment persistence
+- Rolling-task training with sample-level `<= 30 元` price filtering
 - Prediction aggregation and daily selection report export
+- Rule-based entry-plan generation for selected candidates
+- Validation-friendly recommendation tables with names, raw-price entry levels, and next-trade-day hit checks
+- Fully Chinese CSV / Markdown / HTML daily recommendation reports
+- A one-shot `daily-run` pipeline for post-close automation
 - Review summaries and top-k backtest reports
 - `mlruns` backup and restore utilities
 - Unit tests, docs, Make targets, and GitHub Actions CI
@@ -59,6 +69,13 @@ Check local data status:
 python3 roll.py data status
 ```
 
+If you want to work on `上证180`, refresh that universe first; otherwise the default `沪深300` workflow can sync directly:
+
+```bash
+.venv/bin/python roll.py data refresh-sse180
+.venv/bin/python roll.py data sync-akshare --start-date 2026-03-19 --end-date 2026-03-20
+```
+
 Validate that Qlib can read the extracted dataset:
 
 ```bash
@@ -79,6 +96,12 @@ Generate reports:
 .venv/bin/python roll.py model backtest
 ```
 
+Run the full post-close pipeline:
+
+```bash
+.venv/bin/python roll.py daily-run
+```
+
 ## Common Commands
 
 Data:
@@ -89,6 +112,8 @@ python3 -m qlib_assistant_refactor status
 python3 -m qlib_assistant_refactor verify
 python3 -m qlib_assistant_refactor qlib-check
 python3 roll.py data update --proxy A
+python3 roll.py data refresh-sse180
+python3 roll.py data sync-akshare
 ```
 
 Training:
@@ -105,10 +130,44 @@ Analysis:
 ```bash
 .venv/bin/python roll.py model ls --all
 .venv/bin/python roll.py model top --limit 10
+.venv/bin/python roll.py model recommendations --date 2026-03-19 --limit 10 --max-price 30
+.venv/bin/python roll.py model save-recommendations --date 2026-03-19 --limit 10 --max-price 30
+.venv/bin/python roll.py model recommendation-report --date 2026-03-19 --limit 10 --max-price 30
+.venv/bin/python roll.py model save-recommendation-report --date 2026-03-19 --limit 10 --max-price 30
+.venv/bin/python roll.py model recommendation-html --date 2026-03-19 --limit 10 --max-price 30
+.venv/bin/python roll.py model save-recommendation-html --date 2026-03-19 --limit 10 --max-price 30
+.venv/bin/python roll.py model recommendation-spotlight --date 2026-03-20 --limit 3 --max-price 30
+.venv/bin/python roll.py model save-recommendation-spotlight-html --date 2026-03-20 --limit 3 --max-price 30
 .venv/bin/python roll.py model report
 .venv/bin/python roll.py model review
 .venv/bin/python roll.py model backtest
+.venv/bin/python roll.py daily-run
 ```
+
+For validation work, `model recommendations` is the best default view. It shows:
+
+- the recommended stocks and names
+- raw-price entry, breakout, stop, and take-profit levels
+- the next trade day's OHLC prices
+- whether the buy zone or breakout was actually touched
+- a compact validation status for quick manual cross-checking
+
+If you want a more readable daily brief than a wide console table, use `model recommendation-report` or `save-recommendation-report` to render the same recommendation sheet as Markdown.
+
+If you want something visual you can open directly in a browser, use `model recommendation-html` or `save-recommendation-html` to render the daily brief as a standalone HTML page.
+
+If you want a more analyst-style summary focused only on the most important candidates, use `model recommendation-spotlight` or `save-recommendation-spotlight-html` to export a top-3 interpretation page.
+
+`daily-run` ties together:
+
+- `data sync-akshare`
+- `train start`
+- `model report`
+- `model save-recommendations`
+- `model save-recommendation-report`
+- `model save-recommendation-html`
+
+It writes both dated files and stable `latest_*` files under `~/.qlibAssistant/analysis`, so a local automation can keep replacing the latest daily brief without removing older dated archives. When the configured stock pool is `上证180`, it also refreshes the local `sse180.txt` universe file first.
 
 Backups:
 
@@ -124,10 +183,16 @@ Make shortcuts:
 make test
 make doctor
 make probe
+make refresh-sse180
+make sync-akshare
 make train-smoke
+make model-recommendations
+make model-recommendation-report
+make model-recommendation-html
 make model-report
 make model-review
 make model-backtest
+make daily-run
 make clean-local
 ```
 
@@ -153,10 +218,11 @@ make clean-local
 In the current workspace, these flows have already been run successfully:
 
 - Full Qlib CN data download and extraction
-- Local `CSI300` feature access through Qlib
+- Local `沪深300` feature access through Qlib
 - Minimal `Linear + Alpha158` training run
 - Prediction export to `top_predictions_*.csv`
 - Selection report generation under `selection_*/`
+- Chinese recommendation CSV / Markdown / HTML export
 - Review and backtest summary generation
 - `mlruns_YYYY-MM-DD.tar.gz` archive creation
 

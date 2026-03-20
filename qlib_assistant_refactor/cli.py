@@ -17,6 +17,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="Show local and remote data status.")
     subparsers.add_parser("verify", help="Verify extracted local dataset structure.")
     subparsers.add_parser("qlib-check", help="Initialize qlib and read sample features.")
+    sync_parser = subparsers.add_parser("sync-akshare", help="Sync daily bars from AkShare into local qlib data.")
+    sync_parser.add_argument("--start-date", default=None, help="Sync start date in YYYY-MM-DD format.")
+    sync_parser.add_argument("--end-date", default=None, help="Sync end date in YYYY-MM-DD format.")
+    sync_parser.add_argument("--limit", type=int, default=None, help="Only sync the first N symbols.")
 
     download_parser = subparsers.add_parser("download", help="Download the remote asset.")
     download_parser.add_argument("--output", default=None, help="Output path for the archive.")
@@ -95,6 +99,15 @@ def cmd_qlib_check(config: AppConfig) -> int:
     return 0
 
 
+def cmd_sync_akshare(config: AppConfig, start_date: str | None, end_date: str | None, limit: int | None) -> int:
+    from .data_cli import DataCLI
+
+    summary = DataCLI(config).sync_akshare(start_date=start_date, end_date=end_date, limit=limit)
+    for key, value in summary.items():
+        print(f"{key}={value}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -113,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_verify(service)
     if args.command == "qlib-check":
         return cmd_qlib_check(config)
+    if args.command == "sync-akshare":
+        return cmd_sync_akshare(config, args.start_date, args.end_date, args.limit)
     parser.error(f"Unknown command: {args.command}")
     return 2
 

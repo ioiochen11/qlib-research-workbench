@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -22,16 +23,22 @@ class AppConfig:
     provider_uri: str = "~/.qlib/qlib_data/cn_data"
     download_output: str = "~/tmp/qlib_bin.tar.gz"
     extract_dir: str = "~/.qlib/qlib_data/cn_data"
+    sync_dir: str = "~/.qlibAssistant/daily_sync"
+    sync_universe: str = "csi300"
+    sync_adjust: str = "qfq"
+    benchmark_symbol: str = "SH000300"
     uri_folder: str = "~/.qlibAssistant/mlruns"
     pfx_name: str = "p"
     sfx_name: str = "s"
-    model_name: str = "Linear"
+    model_name: str = "auto"
     dataset_name: str = "Alpha158"
     stock_pool: str = "csi300"
+    max_price: float = 30.0
+    model_kwargs: Optional[Dict[str, Any]] = None
     step: int = 60
     rolling_type: str = "expanding"
-    train_window_years: int = 3
-    valid_window_months: int = 6
+    train_window_years: int = 2
+    valid_window_months: int = 4
     test_window_months: int = 1
     analysis_folder: str = "~/.qlibAssistant/analysis"
     backup_folder: str = "~/model_pkl"
@@ -66,12 +73,18 @@ class AppConfig:
             "provider_uri": data.get("provider_uri", cls.provider_uri),
             "download_output": data.get("download_output", cls.download_output),
             "extract_dir": data.get("extract_dir", cls.extract_dir),
+            "sync_dir": data.get("sync_dir", cls.sync_dir),
+            "sync_universe": data.get("sync_universe", cls.sync_universe),
+            "sync_adjust": data.get("sync_adjust", cls.sync_adjust),
+            "benchmark_symbol": data.get("benchmark_symbol", cls.benchmark_symbol),
             "uri_folder": data.get("uri_folder", cls.uri_folder),
             "pfx_name": data.get("pfx_name", cls.pfx_name),
             "sfx_name": data.get("sfx_name", cls.sfx_name),
             "model_name": data.get("model_name", cls.model_name),
             "dataset_name": data.get("dataset_name", cls.dataset_name),
             "stock_pool": data.get("stock_pool", cls.stock_pool),
+            "max_price": data.get("max_price", cls.max_price),
+            "model_kwargs": data.get("model_kwargs", cls.model_kwargs),
             "step": data.get("step", cls.step),
             "rolling_type": data.get("rolling_type", cls.rolling_type),
             "train_window_years": data.get("train_window_years", cls.train_window_years),
@@ -85,3 +98,35 @@ class AppConfig:
             "mirrors": mirrors,
         }
         return cls(**merged)
+
+
+def model_module_available(model_key: str) -> bool:
+    normalized = model_key.lower()
+    if normalized in {"linear"}:
+        return True
+    if normalized in {"lightgbm", "lgbm"}:
+        return find_spec("lightgbm") is not None
+    if normalized == "xgboost":
+        return find_spec("xgboost") is not None
+    return False
+
+
+def resolve_model_name(model_name: str) -> str:
+    normalized = model_name.lower()
+    if normalized == "auto":
+        for candidate in ["lightgbm", "linear"]:
+            if model_module_available(candidate):
+                return candidate
+        return "linear"
+    return normalized
+
+
+def resolved_model_label(model_name: str) -> str:
+    normalized = resolve_model_name(model_name)
+    mapping = {
+        "linear": "Linear",
+        "lightgbm": "LightGBM",
+        "lgbm": "LightGBM",
+        "xgboost": "XGBoost",
+    }
+    return mapping.get(normalized, model_name)

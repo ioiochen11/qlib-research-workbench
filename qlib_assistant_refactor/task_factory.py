@@ -7,7 +7,7 @@ from typing import Dict, List
 
 from dateutil.relativedelta import relativedelta
 
-from .config import AppConfig
+from .config import AppConfig, resolve_model_name, resolved_model_label
 
 
 MODEL_CONFIG_MAP: Dict[str, dict] = {
@@ -19,7 +19,20 @@ MODEL_CONFIG_MAP: Dict[str, dict] = {
     "lightgbm": {
         "class": "LGBModel",
         "module_path": "qlib.contrib.model.gbdt",
-        "kwargs": {},
+        "kwargs": {
+            "loss": "mse",
+            "num_boost_round": 500,
+            "early_stopping_rounds": 80,
+            "learning_rate": 0.03,
+            "num_leaves": 31,
+            "feature_fraction": 0.7,
+            "bagging_fraction": 0.7,
+            "bagging_freq": 5,
+            "min_data_in_leaf": 120,
+            "lambda_l1": 1.0,
+            "lambda_l2": 3.0,
+            "num_threads": 4,
+        },
     },
     "lgbm": {
         "class": "LGBModel",
@@ -89,7 +102,7 @@ def build_default_segments(config: AppConfig, latest_date: str | None = None) ->
 
 
 def build_task_template(config: AppConfig, latest_date: str | None = None) -> dict:
-    model_key = config.model_name.lower()
+    model_key = resolve_model_name(config.model_name)
     if model_key not in MODEL_CONFIG_MAP:
         raise ValueError(f"Unsupported model_name: {config.model_name}")
 
@@ -99,22 +112,37 @@ def build_task_template(config: AppConfig, latest_date: str | None = None) -> di
     segments = build_default_segments(config, latest_date=latest_date)
     end_time = segments.test[1]
 
+    handler_class = config.dataset_name
+    handler_module_path = "qlib.contrib.data.handler"
+    handler_kwargs = {
+        "start_time": segments.train[0],
+        "end_time": end_time,
+        "fit_start_time": segments.train[0],
+        "fit_end_time": segments.train[1],
+        "instruments": config.stock_pool,
+    }
+    if config.dataset_name == "Alpha158" and config.max_price is not None:
+        handler_class = "Alpha158PriceFiltered"
+        handler_module_path = "qlib_assistant_refactor.qlib_handlers"
+        handler_kwargs["max_price"] = config.max_price
+
+    model_config = deepcopy(MODEL_CONFIG_MAP[model_key])
+    if config.model_kwargs:
+        model_config["kwargs"] = {
+            **model_config.get("kwargs", {}),
+            **config.model_kwargs,
+        }
+
     task = {
-        "model": deepcopy(MODEL_CONFIG_MAP[model_key]),
+        "model": model_config,
         "dataset": {
             "class": "DatasetH",
             "module_path": "qlib.data.dataset",
             "kwargs": {
                 "handler": {
-                    "class": config.dataset_name,
-                    "module_path": "qlib.contrib.data.handler",
-                    "kwargs": {
-                        "start_time": segments.train[0],
-                        "end_time": end_time,
-                        "fit_start_time": segments.train[0],
-                        "fit_end_time": segments.train[1],
-                        "instruments": config.stock_pool,
-                    },
+                    "class": handler_class,
+                    "module_path": handler_module_path,
+                    "kwargs": handler_kwargs,
                 },
                 "segments": segments.as_dict(),
             },
@@ -126,6 +154,6 @@ def build_task_template(config: AppConfig, latest_date: str | None = None) -> di
 
 def build_experiment_name(config: AppConfig, suffix: str) -> str:
     return (
-        f"{config.pfx_name}_{config.model_name}_{config.dataset_name}_"
+        f"{config.pfx_name}_{resolved_model_label(config.model_name)}_{config.dataset_name}_"
         f"{config.stock_pool}_{config.rolling_type}_step{config.step}_{config.sfx_name}_{suffix}"
     )

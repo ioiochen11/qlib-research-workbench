@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .config import AppConfig
+from .config import AppConfig, resolve_model_name, resolved_model_label
 from .qlib_env import ensure_qlib, latest_local_data_date
 from .task_factory import build_experiment_name, build_task_template, latest_trade_date
 
@@ -32,6 +32,7 @@ class TrainCLI:
             preview.append(task["dataset"]["kwargs"]["segments"])
         return {
             "experiment_name": self._build_experiment_name("plan"),
+            "resolved_model_name": resolved_model_label(self.config.model_name),
             "task_count": len(tasks),
             "preview": preview,
         }
@@ -76,6 +77,7 @@ class TrainCLI:
 
         return {
             "experiment_name": experiment_name,
+            "resolved_model_name": resolved_model_label(self.config.model_name),
             "recorder_id": rec.info["id"],
             "artifacts": sorted(rec.list_artifacts()),
             "train_segment": tasks[0]["dataset"]["kwargs"]["segments"]["train"],
@@ -94,6 +96,7 @@ class TrainCLI:
         recs = trainer.end_train(recs)
         return {
             "experiment_name": experiment_name,
+            "resolved_model_name": resolved_model_label(self.config.model_name),
             "recorders": [rec.info["id"] for rec in recs],
             "task_count": len(tasks),
         }

@@ -56,3 +56,47 @@ class DataCLITests(TestCase):
             url="https://gh-proxy.org/example",
         )
         self.assertTrue(result["updated"])
+
+    def test_sync_akshare_returns_summary(self) -> None:
+        service = Mock()
+        cli = DataCLI(AppConfig(), service=service)
+        fake_summary = {
+            "csv_dir": "/tmp/csv",
+            "qlib_dir": "/tmp/qlib",
+            "start_date": "2026-03-19",
+            "end_date": "2026-03-20",
+            "symbol_count": 3,
+            "written_csv": 3,
+            "dump_mode": "update",
+            "calendar_count": 2,
+        }
+        with self.subTest("patched sync"):
+            from unittest.mock import patch
+
+            with patch("qlib_assistant_refactor.data_cli.AkshareDailySync") as mock_sync_cls:
+                mock_sync = mock_sync_cls.return_value
+                mock_sync.sync.return_value = type("Summary", (), fake_summary)()
+                result = cli.sync_akshare(limit=3)
+
+        self.assertEqual(result["written_csv"], 3)
+
+    def test_refresh_sse180_universe_returns_summary(self) -> None:
+        service = Mock()
+        cli = DataCLI(AppConfig(), service=service)
+        fake_summary = {
+            "universe_name": "sse180",
+            "source": "akshare_csindex",
+            "instrument_count": 180,
+            "instruments_path": "/tmp/sse180.txt",
+            "cache_path": "/tmp/sse180.csv",
+        }
+        with self.subTest("patched refresh"):
+            from unittest.mock import patch
+
+            with patch("qlib_assistant_refactor.data_cli.AkshareDailySync") as mock_sync_cls:
+                mock_sync = mock_sync_cls.return_value
+                mock_sync.refresh_sse180_universe.return_value = type("Summary", (), fake_summary)()
+                result = cli.refresh_sse180_universe(as_of_date="2026-03-20")
+
+        self.assertEqual(result["instrument_count"], 180)
+        self.assertEqual(result["source"], "akshare_csindex")

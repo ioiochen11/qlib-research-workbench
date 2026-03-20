@@ -1,2 +1,4 @@
 -r requirements.txt
+akshare>=1.18.42
+lightgbm>=4.0.0
 pyqlib>=0.9.7

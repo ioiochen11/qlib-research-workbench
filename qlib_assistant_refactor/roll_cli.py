@@ -20,8 +20,16 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser = data_subparsers.add_parser("update", help="Download and extract latest dataset.")
     update_parser.add_argument("--proxy", default="A", help="Proxy alias A/B/C/D or a full prefix URL.")
     update_parser.add_argument("--force", action="store_true", help="Force update even if local date matches.")
+    refresh_sse180_parser = data_subparsers.add_parser("refresh-sse180", help="Fetch and update the SSE180 instrument universe file.")
+    refresh_sse180_parser.add_argument("--as-of-date", default=None, help="Universe end date in YYYY-MM-DD format.")
+    sync_parser = data_subparsers.add_parser("sync-akshare", help="Sync daily bars from AkShare into local qlib data.")
+    sync_parser.add_argument("--start-date", default=None, help="Sync start date in YYYY-MM-DD format.")
+    sync_parser.add_argument("--end-date", default=None, help="Sync end date in YYYY-MM-DD format.")
+    sync_parser.add_argument("--limit", type=int, default=None, help="Only sync the first N symbols.")
     data_subparsers.add_parser("verify", help="Verify local dataset structure.")
     data_subparsers.add_parser("qlib-check", help="Initialize qlib and read sample features.")
+
+    subparsers.add_parser("daily-run", help="Run the post-close daily pipeline for SSE180 low-price recommendations.")
 
     train_parser = subparsers.add_parser("train", help="Training subcommands.")
     train_subparsers = train_parser.add_subparsers(dest="train_command", required=True)
@@ -39,6 +47,108 @@ def build_parser() -> argparse.ArgumentParser:
     top_parser = model_subparsers.add_parser("top", help="Show top scored instruments from saved predictions.")
     top_parser.add_argument("--limit", type=int, default=20, help="Top N rows to show.")
     top_parser.add_argument("--date", default=None, help="Prediction date in YYYY-MM-DD format.")
+    entry_parser = model_subparsers.add_parser("entry-plan", help="Build rule-based entry price plans for candidates.")
+    entry_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    entry_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    entry_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    entry_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    entry_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    save_entry_parser = model_subparsers.add_parser("save-entry-plan", help="Save rule-based entry price plans to CSV.")
+    save_entry_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    save_entry_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    save_entry_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    save_entry_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    save_entry_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    recommendations_parser = model_subparsers.add_parser(
+        "recommendations",
+        help="Show validation-friendly recommendation rows with entry levels and next-day checks.",
+    )
+    recommendations_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    recommendations_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    recommendations_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    recommendations_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    recommendations_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    save_recommendations_parser = model_subparsers.add_parser(
+        "save-recommendations",
+        help="Save validation-friendly recommendation rows to CSV.",
+    )
+    save_recommendations_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    save_recommendations_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    save_recommendations_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    save_recommendations_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    save_recommendations_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    report_recommendations_parser = model_subparsers.add_parser(
+        "recommendation-report",
+        help="Render a Markdown validation report for the current recommendation sheet.",
+    )
+    report_recommendations_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    report_recommendations_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    report_recommendations_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    report_recommendations_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    report_recommendations_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    save_report_recommendations_parser = model_subparsers.add_parser(
+        "save-recommendation-report",
+        help="Save a Markdown validation report for the current recommendation sheet.",
+    )
+    save_report_recommendations_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    save_report_recommendations_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    save_report_recommendations_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    save_report_recommendations_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    save_report_recommendations_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    html_recommendations_parser = model_subparsers.add_parser(
+        "recommendation-html",
+        help="Render an HTML validation report for the current recommendation sheet.",
+    )
+    html_recommendations_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    html_recommendations_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    html_recommendations_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    html_recommendations_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    html_recommendations_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    save_html_recommendations_parser = model_subparsers.add_parser(
+        "save-recommendation-html",
+        help="Save an HTML validation report for the current recommendation sheet.",
+    )
+    save_html_recommendations_parser.add_argument("--limit", type=int, default=10, help="How many candidates to include.")
+    save_html_recommendations_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    save_html_recommendations_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    save_html_recommendations_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    save_html_recommendations_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    spotlight_parser = model_subparsers.add_parser(
+        "recommendation-spotlight",
+        help="Render a focused Markdown interpretation for the top recommendation candidates.",
+    )
+    spotlight_parser.add_argument("--limit", type=int, default=3, help="How many candidates to include.")
+    spotlight_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    spotlight_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    spotlight_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    spotlight_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    save_spotlight_parser = model_subparsers.add_parser(
+        "save-recommendation-spotlight",
+        help="Save a focused Markdown interpretation for the top recommendation candidates.",
+    )
+    save_spotlight_parser.add_argument("--limit", type=int, default=3, help="How many candidates to include.")
+    save_spotlight_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    save_spotlight_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    save_spotlight_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    save_spotlight_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    spotlight_html_parser = model_subparsers.add_parser(
+        "recommendation-spotlight-html",
+        help="Render a focused HTML interpretation for the top recommendation candidates.",
+    )
+    spotlight_html_parser.add_argument("--limit", type=int, default=3, help="How many candidates to include.")
+    spotlight_html_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    spotlight_html_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    spotlight_html_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    spotlight_html_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    save_spotlight_html_parser = model_subparsers.add_parser(
+        "save-recommendation-spotlight-html",
+        help="Save a focused HTML interpretation for the top recommendation candidates.",
+    )
+    save_spotlight_html_parser.add_argument("--limit", type=int, default=3, help="How many candidates to include.")
+    save_spotlight_html_parser.add_argument("--date", default=None, help="Target date in YYYY-MM-DD format.")
+    save_spotlight_html_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
+    save_spotlight_html_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
+    save_spotlight_html_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
     save_top_parser = model_subparsers.add_parser("save-top", help="Save top predictions to CSV.")
     save_top_parser.add_argument("--limit", type=int, default=20, help="Top N rows to save.")
     save_top_parser.add_argument("--date", default=None, help="Prediction date in YYYY-MM-DD format.")
@@ -80,6 +190,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.data_command == "update":
             print_kv(app.data.update(proxy=args.proxy, force=args.force))
             return 0
+        if args.data_command == "refresh-sse180":
+            print_kv(app.data.refresh_sse180_universe(as_of_date=args.as_of_date))
+            return 0
+        if args.data_command == "sync-akshare":
+            print_kv(app.data.sync_akshare(start_date=args.start_date, end_date=args.end_date, limit=args.limit))
+            return 0
         if args.data_command == "verify":
             print_kv(app.data.verify())
             return 0
@@ -89,6 +205,25 @@ def main(argv: list[str] | None = None) -> int:
             print("sample_features=")
             print(info["sample_features"])
             return 0
+
+    if args.command == "daily-run":
+        info = app.daily_run()
+        if info.get("refresh_info"):
+            print_kv({f"refresh_{k}": v for k, v in info["refresh_info"].items()})
+        print_kv({f"sync_{k}": v for k, v in info["sync_info"].items()})
+        print_kv({f"train_{k}": v for k, v in info["train_info"].items()})
+        print(f"selection_dir={info['selection_dir']}")
+        print(f"recommendations_csv={info['recommendations_csv']}")
+        print(f"recommendation_report_md={info['recommendation_report_md']}")
+        print(f"recommendation_report_html={info['recommendation_report_html']}")
+        print(f"recommendation_spotlight_md={info['recommendation_spotlight_md']}")
+        print(f"recommendation_spotlight_html={info['recommendation_spotlight_html']}")
+        print(f"latest_recommendations_csv={info['latest_recommendations_csv']}")
+        print(f"latest_recommendation_report_md={info['latest_recommendation_report_md']}")
+        print(f"latest_recommendation_report_html={info['latest_recommendation_report_html']}")
+        print(f"latest_recommendation_spotlight_md={info['latest_recommendation_spotlight_md']}")
+        print(f"latest_recommendation_spotlight_html={info['latest_recommendation_spotlight_html']}")
+        return 0
 
     if args.command == "train":
         if args.train_command == "plan":
@@ -118,6 +253,126 @@ def main(argv: list[str] | None = None) -> int:
         if args.model_command == "top":
             df = app.model.top_predictions(limit=args.limit, date=args.date)
             print(df.to_string(index=False))
+            return 0
+        if args.model_command == "entry-plan":
+            df = app.model.entry_plan(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(df.to_string(index=False))
+            return 0
+        if args.model_command == "save-entry-plan":
+            output = app.model.save_entry_plan(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "recommendations":
+            df = app.model.recommendation_sheet(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(df.to_string(index=False))
+            return 0
+        if args.model_command == "save-recommendations":
+            output = app.model.save_recommendation_sheet(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "recommendation-report":
+            report = app.model.recommendation_report(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report, end="")
+            return 0
+        if args.model_command == "save-recommendation-report":
+            output = app.model.save_recommendation_report(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "recommendation-html":
+            report = app.model.recommendation_html(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report, end="")
+            return 0
+        if args.model_command == "save-recommendation-html":
+            output = app.model.save_recommendation_html(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "recommendation-spotlight":
+            report = app.model.recommendation_spotlight(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report)
+            return 0
+        if args.model_command == "save-recommendation-spotlight":
+            output = app.model.save_recommendation_spotlight(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "recommendation-spotlight-html":
+            report = app.model.recommendation_spotlight_html(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report)
+            return 0
+        if args.model_command == "save-recommendation-spotlight-html":
+            output = app.model.save_recommendation_spotlight_html(
+                limit=args.limit,
+                date=args.date,
+                selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
             return 0
         if args.model_command == "save-top":
             output = app.model.save_top_predictions(limit=args.limit, date=args.date)

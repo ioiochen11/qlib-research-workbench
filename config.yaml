@@ -2,21 +2,26 @@ region: "cn"
 provider_uri: "~/.qlib/qlib_data/cn_data"
 download_output: "~/tmp/qlib_bin.tar.gz"
 extract_dir: "~/.qlib/qlib_data/cn_data"
+sync_dir: "~/.qlibAssistant/daily_sync"
+sync_universe: "csi300"
+sync_adjust: "qfq"
+benchmark_symbol: "SH000300"
 uri_folder: "~/.qlibAssistant/mlruns"
 pfx_name: "p"
 sfx_name: "s"
-model_name: "Linear"
+model_name: "auto"
 dataset_name: "Alpha158"
 stock_pool: "csi300"
+max_price: 30
 step: 60
 rolling_type: "expanding"
-train_window_years: 3
-valid_window_months: 6
+train_window_years: 2
+valid_window_months: 4
 test_window_months: 1
 analysis_folder: "~/.qlibAssistant/analysis"
 backup_folder: "~/model_pkl"
 model_filter:
-  - ".*"
+  - ".*csi300.*"
 rec_filter:
   - ic: -1.0
   - icir: -1.0

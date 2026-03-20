@@ -10,6 +10,11 @@ from qlib_assistant_refactor.train_cli import TrainCLI
 
 
 class TaskFactoryTests(TestCase):
+    def test_app_config_defaults_use_recent_windows(self) -> None:
+        config = AppConfig()
+        self.assertEqual(config.train_window_years, 2)
+        self.assertEqual(config.valid_window_months, 4)
+
     def test_build_default_segments_orders_windows(self) -> None:
         config = AppConfig(
             train_window_years=3,
@@ -26,6 +31,7 @@ class TaskFactoryTests(TestCase):
             model_name="Linear",
             dataset_name="Alpha158",
             stock_pool="csi300",
+            max_price=None,
         )
         task = build_task_template(config, latest_date="2026-03-19")
         self.assertEqual(task["model"]["class"], "LinearModel")
@@ -65,3 +71,39 @@ class TaskFactoryTests(TestCase):
         clipped = cli._clip_task_to_latest(task, "2026-03-19")
         self.assertEqual(clipped["dataset"]["kwargs"]["segments"]["test"][1], pd.Timestamp("2026-03-19"))
         self.assertEqual(clipped["dataset"]["kwargs"]["handler"]["kwargs"]["end_time"], "2026-03-19")
+
+    def test_build_task_template_uses_price_filtered_handler_for_alpha158(self) -> None:
+        config = AppConfig(
+            model_name="Linear",
+            dataset_name="Alpha158",
+            stock_pool="sse180",
+            max_price=30.0,
+        )
+        task = build_task_template(config, latest_date="2026-03-19")
+        handler = task["dataset"]["kwargs"]["handler"]
+        self.assertEqual(handler["class"], "Alpha158PriceFiltered")
+        self.assertEqual(handler["module_path"], "qlib_assistant_refactor.qlib_handlers")
+        self.assertEqual(handler["kwargs"]["max_price"], 30.0)
+
+    def test_build_task_template_merges_model_kwargs(self) -> None:
+        config = AppConfig(
+            model_name="lightgbm",
+            stock_pool="csi300",
+            model_kwargs={"num_leaves": 31, "learning_rate": 0.02},
+        )
+        task = build_task_template(config, latest_date="2026-03-19")
+        model_kwargs = task["model"]["kwargs"]
+        self.assertEqual(model_kwargs["num_leaves"], 31)
+        self.assertEqual(model_kwargs["learning_rate"], 0.02)
+
+    def test_build_task_template_uses_tuned_lightgbm_defaults(self) -> None:
+        config = AppConfig(model_name="lightgbm", stock_pool="csi300")
+        task = build_task_template(config, latest_date="2026-03-19")
+        model_kwargs = task["model"]["kwargs"]
+        self.assertEqual(model_kwargs["num_boost_round"], 500)
+        self.assertEqual(model_kwargs["early_stopping_rounds"], 80)
+        self.assertEqual(model_kwargs["learning_rate"], 0.03)
+        self.assertEqual(model_kwargs["num_leaves"], 31)
+        self.assertEqual(model_kwargs["min_data_in_leaf"], 120)
+        self.assertEqual(model_kwargs["lambda_l1"], 1.0)
+        self.assertEqual(model_kwargs["lambda_l2"], 3.0)
