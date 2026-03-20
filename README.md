@@ -1,5 +1,7 @@
 # qlib-assistant-refactor
 
+[![CI](https://github.com/ioiochen11/a/actions/workflows/ci.yml/badge.svg)](https://github.com/ioiochen11/a/actions/workflows/ci.yml)
+
 一个围绕原始 [`qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant) 思路做的最小可测试重构版。
 
 它现在已经不只是“验证数据能不能下”，而是具备了一条可运行闭环：
@@ -130,12 +132,12 @@ make clean-local
 
 ## 目录说明
 
-- [`qlib_assistant_refactor/`](/Users/ioiochen/Documents/Playground/a/qlib_assistant_refactor): 主代码目录
-- [`tests/`](/Users/ioiochen/Documents/Playground/a/tests): 单元测试
-- [`docs/COMMANDS.md`](/Users/ioiochen/Documents/Playground/a/docs/COMMANDS.md): 命令参考
-- [`docs/ARCHITECTURE.md`](/Users/ioiochen/Documents/Playground/a/docs/ARCHITECTURE.md): 模块结构说明
-- [`Makefile`](/Users/ioiochen/Documents/Playground/a/Makefile): 常用开发命令
-- [`pyproject.toml`](/Users/ioiochen/Documents/Playground/a/pyproject.toml): 项目元数据和脚本入口
+- [`qlib_assistant_refactor/`](qlib_assistant_refactor): 主代码目录
+- [`tests/`](tests): 单元测试
+- [`docs/COMMANDS.md`](docs/COMMANDS.md): 命令参考
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): 模块结构说明
+- [`Makefile`](Makefile): 常用开发命令
+- [`pyproject.toml`](pyproject.toml): 项目元数据和脚本入口
 
 ## 输出位置
 
@@ -165,6 +167,6 @@ make clean-local
 
 ## 开发文档
 
-- 命令参考：[docs/COMMANDS.md](/Users/ioiochen/Documents/Playground/a/docs/COMMANDS.md)
-- 架构说明：[docs/ARCHITECTURE.md](/Users/ioiochen/Documents/Playground/a/docs/ARCHITECTURE.md)
-- 开发说明：[docs/DEVELOPMENT.md](/Users/ioiochen/Documents/Playground/a/docs/DEVELOPMENT.md)
+- 命令参考：[docs/COMMANDS.md](docs/COMMANDS.md)
+- 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 开发说明：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
