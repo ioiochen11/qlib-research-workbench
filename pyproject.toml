@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qlib-assistant-refactor"
+version = "0.1.0"
+description = "Minimal, testable refactor of qlibAssistant focused on data, training, analysis, and review workflows."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "python-dateutil>=2.8",
+  "PyYAML>=6.0",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+qlib = [
+  "pyqlib>=0.9.7",
+]
+
+[project.scripts]
+qlib-assistant-refactor = "qlib_assistant_refactor.cli:main"
+qlib-roll = "qlib_assistant_refactor.roll_cli:main"
+
+[tool.setuptools]
+packages = ["qlib_assistant_refactor"]

@@ -1,0 +1,5 @@
+numpy>=1.24
+pandas>=2.0
+python-dateutil>=2.8
+PyYAML>=6.0
+requests>=2.31
