@@ -51,7 +51,7 @@ python3 roll.py model report
 Installed script entry points:
 
 ```bash
-qlib-assistant-refactor probe
+qlib-research-workbench probe
 qlib-roll data status
 ```
 

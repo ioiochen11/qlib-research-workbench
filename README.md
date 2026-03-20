@@ -1,8 +1,8 @@
-# qlib-assistant-refactor
+# qlib-research-workbench
 
-[![CI](https://github.com/ioiochen11/a/actions/workflows/ci.yml/badge.svg)](https://github.com/ioiochen11/a/actions/workflows/ci.yml)
+[![CI](https://github.com/ioiochen11/qlib-research-workbench/actions/workflows/ci.yml/badge.svg)](https://github.com/ioiochen11/qlib-research-workbench/actions/workflows/ci.yml)
 
-一个围绕原始 [`qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant) 思路做的最小可测试重构版。
+一个围绕原始 [`qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant) 思路做的更适合公开协作和持续演进的量化研究工作台。
 
 它现在已经不只是“验证数据能不能下”，而是具备了一条可运行闭环：
 
@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-这个仓库目前更像一个“可运行、可扩展的重构底座”，不是对原仓库 1:1 的完整替代品。
+这个仓库目前更像一个“可运行、可扩展的研究工作台”，不是对原仓库 1:1 的完整替代品。
 
 已经完成的部分：
 

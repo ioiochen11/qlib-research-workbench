@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qlib-assistant-refactor"
+name = "qlib-research-workbench"
 version = "0.1.0"
-description = "Minimal, testable refactor of qlibAssistant focused on data, training, analysis, and review workflows."
+description = "A testable Qlib research workbench for data validation, training, analysis, review, and backtesting workflows."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -22,7 +22,7 @@ qlib = [
 ]
 
 [project.scripts]
-qlib-assistant-refactor = "qlib_assistant_refactor.cli:main"
+qlib-research-workbench = "qlib_assistant_refactor.cli:main"
 qlib-roll = "qlib_assistant_refactor.roll_cli:main"
 
 [tool.setuptools]
