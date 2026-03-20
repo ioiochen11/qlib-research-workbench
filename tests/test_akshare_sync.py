@@ -66,6 +66,22 @@ class AkshareSyncTests(TestCase):
         result = normalize_stock_daily(raw, symbol="SZ000001", name="平安银行")
         self.assertEqual(result.iloc[0]["name"], "平安银行")
 
+    def test_normalize_stock_daily_accepts_tencent_style_columns(self) -> None:
+        raw = pd.DataFrame(
+            [
+                {
+                    "date": "2026-03-20",
+                    "open": 10.0,
+                    "close": 10.5,
+                    "high": 10.6,
+                    "low": 9.9,
+                    "amount": 12345,
+                }
+            ]
+        )
+        result = normalize_stock_daily(raw, symbol="SH600000")
+        self.assertEqual(result.iloc[0]["volume"], 12345)
+
     def test_load_cached_symbol_csv_filters_requested_window(self) -> None:
         with TemporaryDirectory() as tmpdir:
             sync = AkshareDailySync(AppConfig(sync_dir=tmpdir))
@@ -143,3 +159,15 @@ class AkshareSyncTests(TestCase):
             with patch("qlib_assistant_refactor.akshare_sync.ensure_qlib", side_effect=RuntimeError("should not call")):
                 symbols = list(sync._iter_symbols_from_qlib())
             self.assertEqual(symbols, ["SH600000", "SH600009"])
+
+    def test_iter_equity_symbols_excludes_indices(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            provider_uri = Path(tmpdir) / "qlib"
+            instruments_dir = provider_uri / "instruments"
+            instruments_dir.mkdir(parents=True, exist_ok=True)
+            (instruments_dir / "csi300.txt").write_text(
+                "SH000300\t2026-03-19\t2026-03-20\nSH600000\t2026-03-19\t2026-03-20\nSZ000001\t2026-03-19\t2026-03-20\n",
+                encoding="utf-8",
+            )
+            sync = AkshareDailySync(AppConfig(provider_uri=str(provider_uri), sync_universe="csi300"))
+            self.assertEqual(sync._iter_equity_symbols(), ["SH600000", "SZ000001"])

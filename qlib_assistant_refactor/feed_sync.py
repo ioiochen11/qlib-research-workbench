@@ -202,12 +202,12 @@ class FeedSyncManager:
         )
 
     def sync_fundamentals(self, as_of_date: str | None = None, limit: int | None = None) -> FeedSyncSummary:
-        symbols = self.akshare._limit_symbols(list(self.akshare._iter_symbols_from_qlib()), limit=limit)
+        symbols = self._limit_equity_symbols(list(self.akshare._iter_equity_symbols()), limit=limit)
         as_of_date = as_of_date or pd.Timestamp.today().strftime("%Y-%m-%d")
         raw_dir = self._raw_dir("fundamentals", "eastmoney_individual")
         raw_paths: list[Path] = []
         rows: list[dict[str, Any]] = []
-        info_count = 0
+        available_count = 0
 
         report_frames = self._collect_report_frames(as_of_date=as_of_date)
         report_lookup = self._build_latest_report_lookup(report_frames)
@@ -215,9 +215,9 @@ class FeedSyncManager:
         for instrument in symbols:
             info = self._fetch_individual_info(instrument, raw_dir=raw_dir)
             raw_paths.append(raw_dir / f"{instrument}.csv")
-            if info:
-                info_count += 1
             report = report_lookup.get(instrument, {})
+            if info or report:
+                available_count += 1
             rows.append(self._build_fundamental_row(instrument, as_of_date=as_of_date, info=info, report=report))
 
         output = self._gold_dir("fundamentals") / f"fundamentals_{as_of_date}.csv"
@@ -225,7 +225,7 @@ class FeedSyncManager:
         pd.DataFrame(rows).to_csv(output, index=False, encoding="utf-8-sig")
         latest_output = self._gold_dir("fundamentals") / "latest_fundamentals.csv"
         pd.DataFrame(rows).to_csv(latest_output, index=False, encoding="utf-8-sig")
-        coverage_ratio = info_count / len(symbols) if symbols else 0.0
+        coverage_ratio = available_count / len(symbols) if symbols else 0.0
         validation_errors: list[str] = []
         if coverage_ratio < float(self.config.min_universe_coverage):
             validation_errors.append(
@@ -266,7 +266,7 @@ class FeedSyncManager:
         limit: int | None = None,
     ) -> FeedSyncSummary:
         as_of_date = as_of_date or pd.Timestamp.today().strftime("%Y-%m-%d")
-        symbols = self.akshare._limit_symbols(list(self.akshare._iter_symbols_from_qlib()), limit=limit)
+        symbols = self._limit_equity_symbols(list(self.akshare._iter_equity_symbols()), limit=limit)
         raw_notice_dir = self._raw_dir("events", "eastmoney_notice")
         raw_news_dir = self._raw_dir("events", "eastmoney_news")
         raw_paths: list[Path] = []
@@ -500,6 +500,8 @@ class FeedSyncManager:
     ) -> tuple[pd.DataFrame, list[str]]:
         errors: list[str] = []
         if primary is None or primary.empty:
+            if symbol == self.config.benchmark_symbol and backup is not None and not backup.empty:
+                return backup.reset_index(drop=True), [f"benchmark_backup_only:{symbol}"]
             return pd.DataFrame(), [f"missing_primary:{symbol}"]
         if backup is None or backup.empty:
             return pd.DataFrame(), [f"missing_backup:{symbol}"]
@@ -850,6 +852,13 @@ class FeedSyncManager:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    @staticmethod
+    def _limit_equity_symbols(symbols: list[str], limit: int | None = None) -> list[str]:
+        symbols = sorted(dict.fromkeys(symbols))
+        if limit is not None:
+            return symbols[:limit]
+        return symbols
+
     def _manifest_path(self, feed_type: str, as_of_date: str) -> Path:
         return self._manifest_dir(as_of_date) / f"{feed_type}.json"
 
@@ -912,10 +921,15 @@ class FeedSyncManager:
         if value in {None, "", "-", "--"}:
             return None
         try:
+            if pd.isna(value):
+                return None
             text = str(value).replace("%", "").replace(",", "").strip()
             if not text:
                 return None
-            return float(text)
+            result = float(text)
+            if pd.isna(result):
+                return None
+            return result
         except Exception:
             return None
 

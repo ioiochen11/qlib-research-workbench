@@ -208,14 +208,33 @@ class AkshareDailySync:
             raw = ak.index_zh_a_hist(symbol=symbol[2:], period="daily", start_date=start, end_date=end)
             return normalize_index_daily(raw, symbol=symbol, name=self._index_name(symbol))
 
-        raw = ak.stock_zh_a_hist(
-            symbol=symbol[2:],
-            period="daily",
-            start_date=start,
-            end_date=end,
-            adjust=self.config.sync_adjust,
-        )
-        return normalize_stock_daily(raw, symbol=symbol, name=self._load_name_map().get(symbol, ""))
+        last_exc: Exception | None = None
+        for fetcher in [
+            lambda: ak.stock_zh_a_hist(
+                symbol=symbol[2:],
+                period="daily",
+                start_date=start,
+                end_date=end,
+                adjust=self.config.sync_adjust,
+            ),
+            lambda: ak.stock_zh_a_hist_tx(
+                symbol=symbol.lower(),
+                start_date=start,
+                end_date=end,
+                adjust=self.config.sync_adjust,
+                timeout=8,
+            ),
+        ]:
+            try:
+                raw = fetcher()
+                if raw is not None and not raw.empty:
+                    return normalize_stock_daily(raw, symbol=symbol, name=self._load_name_map().get(symbol, ""))
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise last_exc
+        return pd.DataFrame()
 
     def _load_cached_symbol_csv(
         self,
@@ -365,6 +384,9 @@ class AkshareDailySync:
         lines = [line.strip() for line in day_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         return lines[-1] if lines else pd.Timestamp.today().strftime("%Y-%m-%d")
 
+    def _iter_equity_symbols(self) -> list[str]:
+        return [symbol for symbol in self._iter_symbols_from_qlib() if not self._is_index_symbol(symbol)]
+
     @staticmethod
     def _is_index_symbol(symbol: str) -> bool:
         return symbol.startswith(("SH000", "SZ399"))
@@ -385,11 +407,18 @@ def normalize_stock_daily(raw: pd.DataFrame, symbol: str, name: str = "") -> pd.
     renamed = raw.rename(
         columns={
             "日期": "date",
+            "date": "date",
             "开盘": "open",
+            "open": "open",
             "收盘": "close",
+            "close": "close",
             "最高": "high",
+            "high": "high",
             "最低": "low",
+            "low": "low",
             "成交量": "volume",
+            "volume": "volume",
+            "amount": "volume",
         }
     )
     result = renamed[["date", "open", "close", "high", "low", "volume"]].copy()
