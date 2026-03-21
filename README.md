@@ -4,15 +4,29 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![Status](https://img.shields.io/badge/status-active-success)
 
-A practical Qlib-based research workbench for validating Chinese market data, training lightweight rolling models, exporting daily selection reports, and running review and backtest workflows.
+A practical Qlib-based research workbench for validating Chinese market data, training rolling models, generating recommendation briefs, and running review and backtest workflows.
 
 中文说明见 [docs/README_CN.md](docs/README_CN.md)。
 
-The current default workflow is opinionated on purpose: it targets `沪深300` constituents, keeps only `30 元以下` names for both training and recommendation, and generates a fully Chinese daily recommendation brief after the close.
+The current default workflow is intentionally opinionated:
+
+- target `沪深300`
+- keep only `30 元以下` names for both training and recommendation
+- sync market / fundamentals / events after the close
+- refuse to overwrite `latest_*` reports when freshness checks fail
+- generate fully Chinese `CSV / Markdown / HTML` daily briefs for manual validation
 
 This project started as a focused refactor of [`touhoufan2024/qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant), then grew into a cleaner public-facing repo with a testable CLI, documentation, and CI.
 
 If this project is useful, a GitHub star helps a lot.
+
+## At A Glance
+
+- Post-close validated feed pipeline with `raw / gold / manifests`
+- Local Qlib workflow that does not depend on someone else updating a release package every day
+- Rolling training and recommendation generation on top of `Alpha158`
+- Chinese recommendation reports designed for human cross-checking, not just notebook output
+- Built-in freshness gate so stale or broken data skips formal reporting instead of polluting `latest_*`
 
 ## Why This Repo
 
@@ -35,6 +49,23 @@ What it gives you today:
 - Review summaries and top-k backtest reports
 - `mlruns` backup and restore utilities
 - Unit tests, docs, Make targets, and GitHub Actions CI
+
+## How It Works
+
+```text
+Post-close sync
+  -> validate market / fundamentals / events
+  -> write manifests and freshness gate result
+  -> run rolling training
+  -> aggregate predictions
+  -> export Chinese CSV / Markdown / HTML reports
+  -> keep dated archives and stable latest_* files
+```
+
+This makes the repo useful for two different jobs at once:
+
+- daily candidate generation
+- daily validation of whether the recommendation plan matched the next trade day's actual price behavior
 
 ## Quick Start
 
@@ -184,6 +215,20 @@ If you want a more analyst-style summary focused only on the most important cand
 It writes both dated files and stable `latest_*` files under `~/.qlibAssistant/analysis`, so a local automation can keep replacing the latest daily brief without removing older dated archives. When the configured stock pool is `上证180`, it also refreshes the local `sse180.txt` universe file first.
 
 If the configured freshness gate fails, `daily-run` now skips training and formal report generation. In that case it keeps the previous `latest_*` artifacts untouched and writes the reason into the manifest folder under `~/.qlibAssistant/daily_sync/manifests/YYYY-MM-DD/`.
+
+## Outputs You Can Open Directly
+
+After a successful run, the most useful files are:
+
+- `~/.qlibAssistant/analysis/latest_recommendations.csv`
+- `~/.qlibAssistant/analysis/latest_recommendation_report.html`
+- `~/.qlibAssistant/analysis/latest_recommendation_spotlight.html`
+
+These are designed to answer three fast questions:
+
+- what was recommended
+- what price zone the system wanted
+- whether the next trade day actually touched that plan
 
 Backups:
 
