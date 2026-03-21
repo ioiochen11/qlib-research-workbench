@@ -1,21 +1,21 @@
-# Roadmap
+# 路线图
 
-## Near Term
+## 近期
 
-- Improve model selection beyond the current minimal weighted aggregation flow
-- Add more smoke coverage for `train -> report -> review -> backtest`
-- Tighten packaging and CLI ergonomics around installation and first-run setup
-- Make output directories and cleanup operations easier to manage
+- 在当前最小加权聚合之外，继续改进模型筛选逻辑
+- 为 `train -> report -> review -> backtest` 增加更多 smoke 覆盖
+- 优化打包方式、命令体验，以及首次运行配置
+- 让输出目录和清理操作更容易管理
 
-## Mid Term
+## 中期
 
-- Support more configurable report filters and scoring rules
-- Add richer summary tables for experiment comparison
-- Separate research logic from presentation-oriented outputs more clearly
-- Add optional export hooks for dashboards or static pages
+- 支持更灵活的报表过滤规则和评分规则
+- 增加更丰富的实验对比汇总表
+- 更清晰地拆分研究逻辑和展示层输出
+- 增加面向 dashboard 或静态页面的可选导出接口
 
-## Longer Term
+## 更长期
 
-- Offer a cleaner plug-in style layout for model definitions and selection rules
-- Add more reproducible environment and release tooling
-- Decide whether the project should remain a research workbench or move toward a broader platform scope
+- 为模型定义和选股规则提供更清晰的插件式布局
+- 增加更可复现的环境与发布工具链
+- 明确项目未来是继续做研究工作台，还是往更广的平台方向演进

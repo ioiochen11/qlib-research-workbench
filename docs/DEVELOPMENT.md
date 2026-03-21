@@ -1,8 +1,8 @@
-# Development
+# 开发说明
 
-## Suggested Environment
+## 建议环境
 
-Use a local virtual environment:
+建议使用本地虚拟环境：
 
 ```bash
 python3 -m venv .venv
@@ -10,7 +10,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-qlib.txt
 ```
 
-## Common Developer Commands
+## 常用开发命令
 
 ```bash
 make test
@@ -24,23 +24,23 @@ make model-backup
 make clean-local
 ```
 
-## Testing
+## 测试
 
-The project currently uses `unittest`:
+当前项目使用 `unittest`：
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-## CLI Entry Points
+## CLI 入口
 
-Small data-focused CLI:
+轻量数据 CLI：
 
 ```bash
 python3 -m qlib_assistant_refactor probe
 ```
 
-Roll-compatible CLI:
+兼容 `roll.py` 的 CLI：
 
 ```bash
 python3 roll.py data status
@@ -48,24 +48,24 @@ python3 roll.py train smoke
 python3 roll.py model report
 ```
 
-Installed script entry points:
+安装后的脚本入口：
 
 ```bash
 qlib-research-workbench probe
 qlib-roll data status
 ```
 
-Legacy compatibility wrappers remain available:
+兼容性脚本也仍然可用：
 
 ```bash
 python3 scripts/smoke_test.py
 .venv/bin/python scripts/qlib_smoke.py
 ```
 
-## Notes
+## 说明
 
-- `roll.py` is intentionally thin and delegates to `qlib_assistant_refactor.roll_cli`.
-- Qlib init and MLflow runtime setup are centralized in `qlib_assistant_refactor.qlib_env`.
-- `scripts/` now only contains thin wrappers around the package CLI to avoid duplicated logic.
-- `make doctor` is the fastest way to re-check remote reachability, local data dates, and extracted dataset structure.
-- Analysis outputs under `~/.qlibAssistant/analysis` can grow quickly; clean old runs when needed.
+- `roll.py` 被刻意保持得很薄，主要转发到 `qlib_assistant_refactor.roll_cli`。
+- Qlib 初始化和 MLflow 运行时配置都集中在 `qlib_assistant_refactor.qlib_env`。
+- `scripts/` 现在主要只保留对包内 CLI 的薄封装，避免逻辑重复。
+- `make doctor` 是重新检查远端连通性、本地数据日期和解压结构的最快方式。
+- `~/.qlibAssistant/analysis` 下的分析输出会增长得比较快，必要时记得清理旧文件。

@@ -1,63 +1,63 @@
-# Contributing
+# 贡献说明
 
-## Before You Start
+## 开始之前
 
-- Use Python `3.9+`.
-- Prefer working inside a local virtual environment.
-- Keep changes focused and small when possible.
+- 使用 Python `3.9+`
+- 优先在本地虚拟环境中开发
+- 修改尽量聚焦、尽量小步
 
-## Local Setup
+## 本地环境
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-If you need Qlib-related commands:
+如果你需要运行和 Qlib 相关的命令：
 
 ```bash
 .venv/bin/python -m pip install -r requirements-qlib.txt
 ```
 
-## Recommended Workflow
+## 建议工作流
 
-1. Create a branch for your change.
-2. Make the smallest change that solves the problem.
-3. Run the relevant checks locally.
-4. Open a pull request with a short summary and test notes.
+1. 为你的改动创建一个分支
+2. 用尽量小的改动解决问题
+3. 在本地运行相关检查
+4. 提交 Pull Request，并附上简短说明和测试记录
 
-## Local Checks
+## 本地检查
 
-Run the baseline test suite:
+运行基础测试：
 
 ```bash
 make test
 ```
 
-Run a quick environment and data health check:
+运行一次快速环境与数据健康检查：
 
 ```bash
 make doctor
 ```
 
-If your change affects the training or reporting flow, these are useful spot checks:
+如果你的改动会影响训练或日报流程，下面这些 spot check 很有用：
 
 ```bash
 make train-smoke
 make model-report
 ```
 
-## Pull Request Notes
+## Pull Request 说明
 
-Please include:
+建议至少写清楚：
 
-- What changed
-- Why it changed
-- How you verified it
-- Any follow-up work or known limitations
+- 改了什么
+- 为什么改
+- 你是怎么验证的
+- 后续待做事项或已知限制
 
-## Scope Guidance
+## 范围建议
 
-- Keep generated large files, downloaded archives, and local experiment outputs out of git.
-- Prefer updating the package CLI instead of adding more standalone scripts.
-- If a change introduces a new command or workflow, update the docs in `README.md` or `docs/`.
+- 不要把大体积生成文件、下载压缩包和本地实验输出提交进 git
+- 优先扩展包内 CLI，而不是继续增加独立脚本
+- 如果新增了命令或工作流，记得同步更新 `README.md` 或 `docs/`
