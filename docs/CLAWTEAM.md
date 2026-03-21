@@ -1,61 +1,61 @@
-# ClawTeam Integration
+# ClawTeam 集成说明
 
-This repository can use `ClawTeam` as an orchestration layer while keeping `qlib-research-workbench` as the execution layer.
+这个仓库可以把 `ClawTeam` 当作编排层来用，而把 `qlib-research-workbench` 继续当作业务执行层。
 
-The intended split is:
+职责划分是：
 
-- `ClawTeam`: team creation, task tracking, worker spawning, board view
-- `qlib-research-workbench`: market sync, freshness gate, training, report export
+- `ClawTeam`：team 创建、task 跟踪、worker 拉起、board 展示
+- `qlib-research-workbench`：行情同步、freshness gate、训练、日报导出
 
-## Daily Runner
+## 日常 Runner
 
-For daily post-close automation, prefer the built-in runner:
+如果你是为了每天收盘后自动运行，优先用内置 runner：
 
 ```bash
 .venv/bin/python roll.py clawteam-runner
 ```
 
-This mode keeps `ClawTeam` responsible for:
+这种模式里，`ClawTeam` 负责：
 
-- task board creation
-- step status tracking
-- per-task log files
-- run summary snapshots
+- 任务看板
+- 步骤状态跟踪
+- 每个任务的日志文件
+- 每次运行的 summary 快照
 
-And it keeps this repository responsible for actually running the market / fundamentals / events / gate / train / report steps through the existing shell scripts.
+而这个仓库继续负责通过现有 shell 脚本去执行真实的 `market / fundamentals / events / gate / train / report` 步骤。
 
-Output paths:
+输出路径：
 
-- task logs: `.clawteam-workbench/runs/<team>/logs/`
-- summary JSON: `.clawteam-workbench/runs/<team>/summary.json`
+- 任务日志：`.clawteam-workbench/runs/<team>/logs/`
+- summary JSON：`.clawteam-workbench/runs/<team>/summary.json`
 
-Smoke-test example:
+smoke test 示例：
 
 ```bash
 .venv/bin/python roll.py clawteam-runner --team-name qlib-post-close-smoke --market-limit 5 --fundamentals-limit 5 --events-limit 5
 ```
 
-In normal daily runs, omit the `--*-limit` arguments.
+正式日常运行时，不要带 `--*-limit`。
 
-## Setup
+## 环境准备
 
-Create a dedicated Python 3.11+ environment for ClawTeam:
+给 `ClawTeam` 单独准备一个 Python 3.11+ 环境：
 
 ```bash
 bash scripts/setup_clawteam_env.sh
 ```
 
-This creates:
+这会创建：
 
 - `.venv-clawteam/`
 
-Your existing workbench runtime stays in:
+现有工作台运行时仍然放在：
 
 - `.venv/`
 
-## Bootstrap A Team
+## 创建任务板
 
-Create a post-close task board without spawning agents:
+如果你只想先创建一个收盘后任务板，不拉起 agent：
 
 ```bash
 ./.venv-clawteam/bin/python scripts/clawteam_post_close.py \
@@ -63,7 +63,7 @@ Create a post-close task board without spawning agents:
   --data-dir .tmp-clawteam
 ```
 
-This creates a team with tasks for:
+它会创建一个 team，并生成这些任务：
 
 1. `sync-market`
 2. `sync-fundamentals`
@@ -72,11 +72,11 @@ This creates a team with tasks for:
 5. `train-start`
 6. `export-reports`
 
-## Spawn Workers
+## 拉起 Worker
 
-If you already have an agent CLI on PATH, you can ask ClawTeam to spawn workers.
+如果你机器上已经有 agent CLI，可以让 ClawTeam 去拉起 worker。
 
-Example with subprocess backend:
+`subprocess` 后端示例：
 
 ```bash
 ./.venv-clawteam/bin/python scripts/clawteam_post_close.py \
@@ -87,7 +87,7 @@ Example with subprocess backend:
   --spawn-workers
 ```
 
-Example with tmux backend:
+`tmux` 后端示例：
 
 ```bash
 ./.venv-clawteam/bin/python scripts/clawteam_post_close.py \
@@ -99,23 +99,23 @@ Example with tmux backend:
   --workspace
 ```
 
-## Board Commands
+## 看板命令
 
-Show a team board:
+查看任务看板：
 
 ```bash
 .venv-clawteam/bin/clawteam --data-dir .clawteam-workbench board show qlib-post-close-live
 ```
 
-Wait for all tasks:
+等待所有任务结束：
 
 ```bash
 .venv-clawteam/bin/clawteam --data-dir .clawteam-workbench task wait qlib-post-close-live
 ```
 
-## Worker Step Scripts
+## Worker 步骤脚本
 
-Each worker prompt uses one deterministic shell script:
+每个 worker prompt 都会对应一个确定性的 shell 脚本：
 
 - `scripts/clawteam_market_sync.sh`
 - `scripts/clawteam_fundamentals_sync.sh`
@@ -124,4 +124,4 @@ Each worker prompt uses one deterministic shell script:
 - `scripts/clawteam_train_start.sh`
 - `scripts/clawteam_export_reports.sh`
 
-That keeps ClawTeam responsible for coordination while this repository keeps responsibility for business logic.
+这样可以让 ClawTeam 负责协调，而这个仓库继续负责业务逻辑本身。

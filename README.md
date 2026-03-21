@@ -50,57 +50,59 @@
 
 ## 工作流
 
-```text
-Post-close sync
-  -> validate market / fundamentals / events
-  -> write manifests and freshness gate result
-  -> run rolling training
-  -> aggregate predictions
-  -> export Chinese CSV / Markdown / HTML reports
-  -> keep dated archives and stable latest_* files
+```mermaid
+flowchart TD
+    A["收盘后同步行情"] --> B["同步财报与事件"]
+    B --> C["多 feed 校验与 freshness gate"]
+    C -->|通过| D["滚动训练"]
+    C -->|未通过| E["跳过正式日报，保留旧的 latest_*"]
+    D --> F["聚合预测结果"]
+    F --> G["导出中文 CSV / Markdown / HTML 日报"]
+    G --> H["生成 latest_* 与按日期归档文件"]
+    H --> I["复盘与回测"]
 ```
 
-This makes the repo useful for two different jobs at once:
+这个仓库同时解决两件事：
 
-- daily candidate generation
-- daily validation of whether the recommendation plan matched the next trade day's actual price behavior
+- 每天收盘后生成候选股票与推荐日报
+- 每天核对推荐价位与下一交易日真实价格行为是否一致
 
-## Quick Start
+## 快速开始
 
-Install the lightweight dependencies:
+先安装轻量依赖：
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-Install Qlib-related dependencies when you want to run training or model workflows:
+如果你要跑训练和模型相关流程，再安装 Qlib 依赖：
 
 ```bash
 python3 -m pip install -r requirements-qlib.txt
 ```
 
-Or install the package directly:
+也可以直接按可编辑模式安装：
 
 ```bash
 python3 -m pip install -e .
 python3 -m pip install -e .[qlib]
 ```
 
-## First Run
+## 第一次运行
 
-Probe the remote data source:
+先探测远端数据源：
 
 ```bash
 python3 -m qlib_assistant_refactor probe
 ```
 
-Check local data status:
+查看本地数据状态：
 
 ```bash
 python3 roll.py data status
 ```
 
-If you want to work on `上证180`, refresh that universe first; otherwise the default `沪深300` workflow can sync directly:
+如果你要跑 `上证180`，先刷新股票池文件；默认 `沪深300` 可以直接同步：
 
 ```bash
 .venv/bin/python roll.py data refresh-sse180
@@ -111,19 +113,19 @@ If you want to work on `上证180`, refresh that universe first; otherwise the d
 .venv/bin/python roll.py data verify-freshness --date 2026-03-20
 ```
 
-Validate that Qlib can read the extracted dataset:
+确认 Qlib 能正常读取本地数据：
 
 ```bash
 .venv/bin/python roll.py data qlib-check
 ```
 
-Run a minimal training job:
+跑一次最小训练：
 
 ```bash
 .venv/bin/python roll.py train smoke
 ```
 
-Generate reports:
+生成报表：
 
 ```bash
 .venv/bin/python roll.py model report
@@ -131,16 +133,16 @@ Generate reports:
 .venv/bin/python roll.py model backtest
 ```
 
-Run the full post-close pipeline:
+运行完整的收盘后流程：
 
 ```bash
 .venv/bin/python roll.py daily-run
 .venv/bin/python roll.py clawteam-runner
 ```
 
-## Common Commands
+## 常用命令
 
-Data:
+数据：
 
 ```bash
 python3 -m qlib_assistant_refactor probe
@@ -157,7 +159,7 @@ python3 roll.py data verify-freshness
 python3 roll.py data show-manifest --date 2026-03-20
 ```
 
-Training:
+训练：
 
 ```bash
 .venv/bin/python roll.py train plan
@@ -166,7 +168,7 @@ Training:
 .venv/bin/python roll.py train list-experiments
 ```
 
-Analysis:
+分析：
 
 ```bash
 .venv/bin/python roll.py model ls --all
@@ -186,21 +188,21 @@ Analysis:
 .venv/bin/python roll.py clawteam-runner
 ```
 
-For validation work, `model recommendations` is the best default view. It shows:
+如果你主要是做人工核对，`model recommendations` 是最适合直接看的命令，它会展示：
 
-- the recommended stocks and names
-- raw-price entry, breakout, stop, and take-profit levels
-- the next trade day's OHLC prices
-- whether the buy zone or breakout was actually touched
-- a compact validation status for quick manual cross-checking
+- 推荐股票及名称
+- 原始价格尺度下的买入区间、突破价、止损和止盈
+- 下一交易日的 OHLC 价格
+- 是否真正触及买入区间或突破价
+- 一个便于快速人工核对的验证状态
 
-If you want a more readable daily brief than a wide console table, use `model recommendation-report` or `save-recommendation-report` to render the same recommendation sheet as Markdown.
+如果你希望比宽表更好读，可以用 `model recommendation-report` 或 `save-recommendation-report` 导出 Markdown 日报。
 
-If you want something visual you can open directly in a browser, use `model recommendation-html` or `save-recommendation-html` to render the daily brief as a standalone HTML page.
+如果你希望直接在浏览器里查看，可以用 `model recommendation-html` 或 `save-recommendation-html` 导出独立 HTML 页面。
 
-If you want a more analyst-style summary focused only on the most important candidates, use `model recommendation-spotlight` or `save-recommendation-spotlight-html` to export a top-3 interpretation page.
+如果你只想看最重要的几只候选票，可以用 `model recommendation-spotlight` 或 `save-recommendation-spotlight-html` 导出 Top3 解读页。
 
-`daily-run` ties together:
+`daily-run` 会串起这条主链：
 
 - `data sync-market`
 - `data sync-fundamentals`
@@ -212,33 +214,33 @@ If you want a more analyst-style summary focused only on the most important cand
 - `model save-recommendation-report`
 - `model save-recommendation-html`
 
-It writes both dated files and stable `latest_*` files under `~/.qlibAssistant/analysis`, so a local automation can keep replacing the latest daily brief without removing older dated archives. When the configured stock pool is `上证180`, it also refreshes the local `sse180.txt` universe file first.
+它会同时写出按日期归档的文件和稳定命名的 `latest_*` 文件，目录都在 `~/.qlibAssistant/analysis` 下，方便本机自动化每天覆盖最新日报，同时保留历史归档。如果股票池是 `上证180`，它还会先刷新本地 `sse180.txt`。
 
-If the configured freshness gate fails, `daily-run` now skips training and formal report generation. In that case it keeps the previous `latest_*` artifacts untouched and writes the reason into the manifest folder under `~/.qlibAssistant/daily_sync/manifests/YYYY-MM-DD/`.
+如果 freshness gate 失败，`daily-run` 会跳过训练和正式出报，并保留原有 `latest_*` 文件不动，同时把原因写到 `~/.qlibAssistant/daily_sync/manifests/YYYY-MM-DD/`。
 
-If you want the same post-close flow with task-level tracking, run:
+如果你想要同一条收盘后流程，但带任务级追踪和日志，运行：
 
 ```bash
 .venv/bin/python roll.py clawteam-runner
 ```
 
-That creates a ClawTeam team for the run, updates task states step by step, writes per-task logs under `.clawteam-workbench/runs/<team>/logs/`, and saves a summary JSON for later inspection.
+它会为这次运行创建一个 ClawTeam team，逐步更新 task 状态，把每一步的日志写到 `.clawteam-workbench/runs/<team>/logs/`，并保存 summary JSON 供后续检查。
 
-## Outputs You Can Open Directly
+## 可直接打开的输出
 
-After a successful run, the most useful files are:
+成功运行后，最有用的几个文件是：
 
 - `~/.qlibAssistant/analysis/latest_recommendations.csv`
 - `~/.qlibAssistant/analysis/latest_recommendation_report.html`
 - `~/.qlibAssistant/analysis/latest_recommendation_spotlight.html`
 
-These are designed to answer three fast questions:
+它们主要回答 3 个问题：
 
-- what was recommended
-- what price zone the system wanted
-- whether the next trade day actually touched that plan
+- 推荐了什么
+- 系统希望的入手价位区间是什么
+- 下一交易日是否真正触及了这个计划
 
-Backups:
+备份：
 
 ```bash
 .venv/bin/python roll.py model list-backups
@@ -246,7 +248,7 @@ Backups:
 .venv/bin/python roll.py model restore
 ```
 
-Make shortcuts:
+Make 快捷命令：
 
 ```bash
 make test
@@ -266,68 +268,69 @@ make clawteam-runner
 make clean-local
 ```
 
-## Project Layout
+## 项目结构
 
-- [`qlib_assistant_refactor/`](qlib_assistant_refactor): main application code
-- [`tests/`](tests): unit tests
-- [`docs/COMMANDS.md`](docs/COMMANDS.md): CLI reference
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): module-level architecture notes
-- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md): local development workflow
-- [`docs/ROADMAP.md`](docs/ROADMAP.md): planned next steps
-- [`CONTRIBUTING.md`](CONTRIBUTING.md): contribution guidance
+- [`qlib_assistant_refactor/`](qlib_assistant_refactor)：主应用代码
+- [`tests/`](tests)：单元测试
+- [`docs/COMMANDS.md`](docs/COMMANDS.md)：命令参考
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)：架构说明
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)：本地开发流程
+- [`docs/ROADMAP.md`](docs/ROADMAP.md)：后续计划
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)：贡献说明
 
-## Runtime Paths
+## 运行时路径
 
-- Local Qlib data: `~/.qlib/qlib_data/cn_data`
-- Raw structured sync cache: `~/.qlibAssistant/daily_sync/raw`
-- Validated gold feeds: `~/.qlibAssistant/daily_sync/gold`
-- Feed manifests: `~/.qlibAssistant/daily_sync/manifests`
-- MLflow experiments: `~/.qlibAssistant/mlruns`
-- Analysis outputs: `~/.qlibAssistant/analysis`
-- Backup archives: `~/model_pkl`
+- 本地 Qlib 数据：`~/.qlib/qlib_data/cn_data`
+- 原始结构化缓存：`~/.qlibAssistant/daily_sync/raw`
+- 校验后的 gold feeds：`~/.qlibAssistant/daily_sync/gold`
+- feed manifests：`~/.qlibAssistant/daily_sync/manifests`
+- MLflow 实验目录：`~/.qlibAssistant/mlruns`
+- 分析输出目录：`~/.qlibAssistant/analysis`
+- 备份压缩包目录：`~/model_pkl`
 
-## What Has Been Verified
+## 已验证内容
 
-In the current workspace, these flows have already been run successfully:
+当前工作区里，下面这些流程都已经真实跑通过：
 
-- Full Qlib CN data download and extraction
-- Local `沪深300` feature access through Qlib
-- Minimal `Linear + Alpha158` training run
-- Prediction export to `top_predictions_*.csv`
-- Selection report generation under `selection_*/`
-- Chinese recommendation CSV / Markdown / HTML export
-- Review and backtest summary generation
-- `mlruns_YYYY-MM-DD.tar.gz` archive creation
+- Qlib A 股数据下载与解压
+- 本地 `沪深300` 特征读取
+- 最小 `Linear + Alpha158` 训练
+- `top_predictions_*.csv` 导出
+- `selection_*` 选股报表生成
+- 中文 CSV / Markdown / HTML 推荐日报导出
+- 复盘和回测汇总生成
+- `mlruns_YYYY-MM-DD.tar.gz` 备份创建
+- `ClawTeam` 收盘后 runner 实跑
 
-## Current Scope
+## 当前定位
 
-This repo is intentionally practical rather than exhaustive.
+这个仓库目前更偏“务实可跑”，而不是“大而全框架”。
 
-- It prioritizes reproducible workflows over framework abstraction
-- It keeps the original project spirit but does not mirror every original feature one-to-one
-- It is suitable as a personal research base or a starting point for a team-internal tool
-- It is not yet positioned as a production execution engine
+- 优先保证工作流可复现，而不是先做过度抽象
+- 保留原始项目精神，但不追求和原仓库一比一复制
+- 适合作为个人研究底座，也适合作为团队内工具的起点
+- 目前还不是生产级交易执行系统
 
-## Roadmap
+## 路线图
 
-Planned improvements are tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+后续改进计划见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
-Short version:
+短期重点包括：
 
-- Better experiment selection and ranking logic
-- Cleaner packaging and command ergonomics
-- Optional richer reporting outputs
-- More end-to-end smoke coverage
+- 更好的实验筛选与排序逻辑
+- 更干净的打包与命令体验
+- 更丰富的中文日报展示
+- 更多端到端 smoke 覆盖
 
-## Notes
+## 说明
 
-- Network reachability can change over time; direct GitHub asset URLs and proxy mirrors are not equally stable.
-- `pyqlib` is relatively heavy, so using a virtual environment is strongly recommended.
-- Some environments show a `urllib3` and `LibreSSL` warning; it does not necessarily block the workflow.
+- 网络连通性会波动，GitHub 直链和代理并不总是一样稳定
+- `pyqlib` 依赖较重，强烈建议使用虚拟环境
+- 某些环境里会看到 `urllib3` 和 `LibreSSL` 的 warning，不一定影响流程运行
 
-## Docs
+## 文档入口
 
-- Command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md)
-- Architecture notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Development guide: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
-- Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 命令参考：[`docs/COMMANDS.md`](docs/COMMANDS.md)
+- 架构说明：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- 开发说明：[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+- 贡献说明：[`CONTRIBUTING.md`](CONTRIBUTING.md)

@@ -1,8 +1,8 @@
-# Command Reference
+# 命令参考
 
-## Data CLI
+## 数据命令
 
-Use the lightweight package entry when you only need data validation and local dataset checks.
+如果你只需要做数据验证和本地数据检查，优先用这个轻量入口。
 
 ```bash
 python3 -m qlib_assistant_refactor probe
@@ -13,9 +13,9 @@ python3 -m qlib_assistant_refactor download --output ~/tmp/qlib_bin.tar.gz
 python3 -m qlib_assistant_refactor extract --archive ~/tmp/qlib_bin.tar.gz --target-dir ~/.qlib/qlib_data/cn_data --strip-components 1
 ```
 
-## Roll-Compatible CLI
+## 兼容 `roll.py` 的 CLI
 
-Use the qlibAssistant-style entry when you want the full workflow.
+如果你要跑完整工作流，就用这个兼容原始 `roll.py` 风格的入口。
 
 ```bash
 python3 roll.py show-config
@@ -33,15 +33,15 @@ python3 roll.py daily-run
 python3 roll.py clawteam-runner
 ```
 
-`sync-market` writes raw source snapshots under `raw/market/`, validates AkShare against Eastmoney, and only then updates the local Qlib provider and `gold/market/`.
+`sync-market` 会先把原始快照写到 `raw/market/`，再做 AkShare 和 Eastmoney 的交叉校验，只有通过后才会更新本地 Qlib provider 和 `gold/market/`。
 
-`sync-fundamentals` and `sync-events` write structured feed snapshots under `gold/fundamentals/` and `gold/events/`.
+`sync-fundamentals` 和 `sync-events` 会把结构化 feed 快照写到 `gold/fundamentals/` 和 `gold/events/`。
 
-`verify-freshness` checks the configured post-close gate. If a required feed is stale, invalid, or missing, `daily-run` will skip formal training and report generation.
+`verify-freshness` 会检查收盘后门禁。如果某个必需 feed 过期、无效或缺失，`daily-run` 会跳过正式训练和日报生成。
 
-`clawteam-runner` is the stable task-tracked variant of the post-close flow. It creates a ClawTeam board for the run, executes each business step locally, stores per-task logs, and writes a run summary JSON under `.clawteam-workbench/runs/<team>/`.
+`clawteam-runner` 是更适合日常自动化的任务追踪版本。它会创建一个 ClawTeam 看板，在本地执行每个业务步骤，保存逐任务日志，并把 run summary JSON 写到 `.clawteam-workbench/runs/<team>/`。
 
-## Training
+## 训练
 
 ```bash
 .venv/bin/python roll.py train plan
@@ -50,7 +50,7 @@ python3 roll.py clawteam-runner
 .venv/bin/python roll.py train list-experiments
 ```
 
-## Model Analysis
+## 模型分析
 
 ```bash
 .venv/bin/python roll.py model ls --all
@@ -69,25 +69,25 @@ python3 roll.py clawteam-runner
 .venv/bin/python roll.py model backtest
 ```
 
-`model recommendations` is the most validation-friendly view. It combines:
+`model recommendations` 是最适合人工核对的视图，会同时给出：
 
-- recommended instruments and names
-- planned entry zone, breakout, stop, and take-profit levels
-- next-trade-day raw OHLC prices
-- whether the plan's buy zone or breakout was actually touched
-- a simple validation status for quick manual checking
+- 推荐股票和名称
+- 计划买入区间、突破价、止损和止盈
+- 下一交易日的原始 OHLC 价格
+- 是否真正触及买入区间或突破位
+- 一个便于快速人工核对的验证状态
 
-`model recommendation-report` renders the same data as a compact Markdown daily brief, which is easier to read or archive than the wide console table.
+`model recommendation-report` 会把同一份数据导出成紧凑的 Markdown 日报，比控制台宽表更适合阅读和归档。
 
-`model recommendation-html` renders the same recommendation brief as a self-contained HTML page with summary cards and a styled table, so you can open it directly in a browser.
+`model recommendation-html` 会把这份日报导出成一个自包含 HTML 页面，带摘要卡片和表格样式，可以直接在浏览器里打开。
 
-`save-recommendations` now exports a fully Chinese CSV. `save-recommendation-report` and `save-recommendation-html` also use Chinese labels, validation states, and notes.
+`save-recommendations` 现在会导出全中文 CSV，`save-recommendation-report` 和 `save-recommendation-html` 也都已经使用中文标题、验证状态和说明。
 
-`daily-run` is the post-close one-shot pipeline for the default `沪深300 + 30 元以下` workflow. It syncs validated market / fundamentals / events feeds, runs the freshness gate, trains the model, generates the selection report, and writes both dated and `latest_*` recommendation artifacts. If you switch the configured stock pool to `上证180`, it will refresh the local `sse180.txt` universe file first.
+`daily-run` 是默认的收盘后一键流程，针对的是 `沪深300 + 30 元以下` 这套默认策略。它会同步并校验 `market / fundamentals / events`，执行 freshness gate，训练模型，生成 selection report，并同时写 dated 文件和 `latest_*` 推荐日报。如果切换成 `上证180` 股票池，它会先刷新本地 `sse180.txt`。
 
-When the freshness gate fails, `daily-run` exits without touching the previous `latest_*` files. The detailed reason is stored in the daily manifest directory so you can inspect why the formal report was skipped.
+如果 freshness gate 失败，`daily-run` 会直接退出，不会改动旧的 `latest_*` 文件。详细原因会写到当日 manifest 目录里。
 
-## Backup
+## 备份
 
 ```bash
 .venv/bin/python roll.py model list-backups
@@ -96,7 +96,7 @@ When the freshness gate fails, `daily-run` exits without touching the previous `
 .venv/bin/python roll.py model restore --archive-name mlruns_2026-03-19.tar.gz
 ```
 
-## Makefile Shortcuts
+## Makefile 快捷命令
 
 ```bash
 make test
