@@ -54,3 +54,57 @@ class FeedSyncTests(TestCase):
             self.assertEqual(summary.record_count, 2)
             self.assertEqual(summary.coverage_ratio, 1.0)
             self.assertTrue(summary.eligible_for_daily_run)
+
+    def test_build_fundamental_row_derives_richer_tags_and_pe(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            sync_dir = Path(tmpdir)
+            daily_dir = sync_dir / "akshare_daily"
+            daily_dir.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {"date": "2026-03-20", "close": 24.0},
+                ]
+            ).to_csv(daily_dir / "SH600000.csv", index=False)
+
+            manager = FeedSyncManager(AppConfig(sync_dir=tmpdir))
+            row = manager._build_fundamental_row(
+                instrument="SH600000",
+                as_of_date="2026-03-20",
+                info={"股票简称": "浦发银行"},
+                report={
+                    "report_period": "20251231",
+                    "report_source": "eastmoney_yjkb",
+                    "营业收入同比增长": "18",
+                    "净利润同比增长": "26",
+                    "净资产收益率": "16",
+                    "每股收益": "2",
+                    "销售毛利率": "32",
+                },
+            )
+
+            self.assertEqual(row["fundamental_risk_tag"], "营收增长较快、利润增长较快")
+            self.assertEqual(row["valuation_tag"], "估值中性、质地较好")
+            self.assertIn("估算PE 12.00", row["fundamental_summary"])
+
+    def test_event_summaries_generate_richer_labels(self) -> None:
+        manager = FeedSyncManager(AppConfig())
+        notice_df = pd.DataFrame(
+            [
+                {"代码": "600000", "公告标题": "浦发银行关于回购股份进展公告"},
+                {"代码": "600000", "公告标题": "浦发银行签署重大合同的公告"},
+            ]
+        )
+        news_df = pd.DataFrame(
+            [
+                {"instrument": "SH600000", "title": "浦发银行订单增长 创新高", "published_at": "2026-03-20", "source_name": "东方财富"},
+                {"instrument": "SH600000", "title": "浦发银行被问询 业绩下滑风险引关注", "published_at": "2026-03-20", "source_name": "东方财富"},
+            ]
+        )
+
+        notice = manager._summarize_notice_events(notice_df, symbols=["SH600000"])
+        news = manager._summarize_news_events(news_df, symbols=["SH600000"])
+        event_tag = manager._merge_event_risk(notice["SH600000"], news["SH600000"])
+
+        self.assertIn("公告标签 回购、重大合同", notice["SH600000"]["notice_summary"])
+        self.assertIn("情绪 中性", news["SH600000"]["news_summary"])
+        self.assertEqual(event_tag, "公告多空交织")

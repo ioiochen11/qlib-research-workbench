@@ -678,18 +678,22 @@ class FeedSyncManager:
         name = str(info.get("股票简称") or report.get("name") or self.akshare._load_name_map().get(instrument, instrument))
         industry = str(info.get("行业") or "行业待补充")
         latest_price = self._to_float(info.get("最新"))
+        if latest_price is None:
+            latest_price = self._sync_latest_close(instrument=instrument, as_of_date=as_of_date)
         total_mv = self._to_float(info.get("总市值"))
         float_mv = self._to_float(info.get("流通市值"))
         report_period = str(report.get("report_period") or "")
         report_source = str(report.get("report_source") or "")
         fundamental_risk_tag = self._fundamental_risk_tag(revenue_yoy, profit_yoy, roe)
-        valuation_tag = "估值信息有限"
+        valuation_tag = self._valuation_tag(latest_price=latest_price, eps=eps, roe=roe, gross_margin=gross_margin)
         summary = self._fundamental_summary(
             report_period=report_period,
             revenue_yoy=revenue_yoy,
             profit_yoy=profit_yoy,
             roe=roe,
             gross_margin=gross_margin,
+            eps=eps,
+            latest_price=latest_price,
         )
         return {
             "instrument": instrument,
@@ -801,7 +805,7 @@ class FeedSyncManager:
             summary[instrument] = {
                 "notice_count_3d": len(group),
                 "notice_tags": "、".join(tags),
-                "notice_summary": "；".join(titles[:3]),
+                "notice_summary": self._build_notice_summary(tags=tags, titles=titles),
             }
         return summary
 
@@ -826,17 +830,35 @@ class FeedSyncManager:
                 "news_count_3d": len(group),
                 "news_sentiment": sentiment,
                 "news_risk_tags": "、".join(risk_tags),
-                "news_summary": "；".join(titles[:3]),
+                "news_summary": self._build_news_summary(sentiment=sentiment, risk_tags=risk_tags, titles=titles),
             }
         return summary
 
     def _merge_event_risk(self, notice: dict[str, Any], news: dict[str, Any]) -> str:
         tags = " ".join([str(notice.get("notice_tags", "")), str(news.get("news_risk_tags", ""))])
-        if any(keyword in tags for keyword in ["减持", "处罚", "诉讼", "问询", "解禁", "亏损", "下滑"]):
-            return "事件偏风险"
-        if any(keyword in tags for keyword in ["回购", "中标", "增持", "签约", "分红"]):
-            return "事件偏正面"
+        negative = any(keyword in tags for keyword in ["减持", "处罚", "诉讼", "问询", "解禁", "亏损", "下滑", "预减", "违约"])
+        positive = any(keyword in tags for keyword in ["回购", "中标", "增持", "签约", "分红", "预增", "增长", "新高"])
+        if negative and positive:
+            return "公告多空交织"
+        if negative:
+            return "公告偏利空"
+        if positive:
+            return "公告偏利多"
         return "事件中性"
+
+    def _sync_latest_close(self, instrument: str, as_of_date: str) -> float | None:
+        csv_path = Path(self.config.sync_dir).expanduser() / "akshare_daily" / f"{instrument}.csv"
+        if not csv_path.exists():
+            return None
+        try:
+            frame = pd.read_csv(csv_path)
+        except Exception:
+            return None
+        if frame.empty or "date" not in frame.columns or "close" not in frame.columns:
+            return None
+        matched = frame[frame["date"].astype(str) == as_of_date]
+        row = matched.iloc[-1] if not matched.empty else frame.iloc[-1]
+        return self._to_float(row.get("close"))
 
     def _candidate_report_periods(self, as_of_date: str, count: int = 6) -> list[str]:
         base = pd.Timestamp(as_of_date)
@@ -954,15 +976,56 @@ class FeedSyncManager:
 
     @staticmethod
     def _fundamental_risk_tag(revenue_yoy: float | None, profit_yoy: float | None, roe: float | None) -> str:
-        if profit_yoy is not None and profit_yoy < 0:
-            return "利润承压"
-        if revenue_yoy is not None and revenue_yoy < 0:
-            return "营收转弱"
-        if roe is not None and roe < 0:
-            return "回报偏弱"
+        tags: list[str] = []
+        if profit_yoy is not None and profit_yoy < -20:
+            tags.append("利润明显承压")
+        elif profit_yoy is not None and profit_yoy < 0:
+            tags.append("利润承压")
+        if revenue_yoy is not None and revenue_yoy < -10:
+            tags.append("营收下滑")
+        elif revenue_yoy is not None and revenue_yoy >= 15:
+            tags.append("营收增长较快")
+        if profit_yoy is not None and profit_yoy >= 20:
+            tags.append("利润增长较快")
+        if revenue_yoy is not None and revenue_yoy > 0 and profit_yoy is not None and profit_yoy < 0:
+            tags.append("增收不增利")
+        if roe is not None and roe < 5:
+            tags.append("回报偏弱")
+        elif roe is not None and roe >= 12:
+            tags.append("盈利质量较好")
         if revenue_yoy is None and profit_yoy is None:
             return "财报信息有限"
-        return "基本面中性"
+        if not tags:
+            return "基本面中性"
+        return "、".join(tags[:2])
+
+    @staticmethod
+    def _valuation_tag(
+        latest_price: float | None,
+        eps: float | None,
+        roe: float | None,
+        gross_margin: float | None,
+    ) -> str:
+        tags: list[str] = []
+        if latest_price is not None and eps is not None and eps > 0:
+            pe = latest_price / eps
+            if pe < 12:
+                tags.append("估值偏低")
+            elif pe > 35:
+                tags.append("估值偏高")
+            else:
+                tags.append("估值中性")
+        elif eps is not None and eps <= 0:
+            tags.append("盈利支撑较弱")
+
+        if roe is not None and roe >= 15 and "估值偏高" not in tags:
+            tags.append("质地较好")
+        elif gross_margin is not None and gross_margin < 10:
+            tags.append("利润空间偏薄")
+
+        if not tags:
+            return "估值信息有限"
+        return "、".join(tags[:2])
 
     @staticmethod
     def _fundamental_summary(
@@ -971,6 +1034,8 @@ class FeedSyncManager:
         profit_yoy: float | None,
         roe: float | None,
         gross_margin: float | None,
+        eps: float | None,
+        latest_price: float | None,
     ) -> str:
         parts = []
         if report_period:
@@ -983,7 +1048,29 @@ class FeedSyncManager:
             parts.append(f"ROE {roe:.2f}%")
         if gross_margin is not None:
             parts.append(f"毛利率 {gross_margin:.2f}%")
+        if eps is not None:
+            parts.append(f"每股收益 {eps:.4g}")
+        if latest_price is not None and eps is not None and eps > 0:
+            parts.append(f"估算PE {latest_price / eps:.2f}")
         return "；".join(parts) if parts else "暂无有效财报摘要"
+
+    @staticmethod
+    def _build_notice_summary(tags: list[str], titles: list[str]) -> str:
+        parts: list[str] = []
+        if tags:
+            parts.append(f"公告标签 {('、'.join(tags[:4]))}")
+        if titles:
+            parts.append("；".join(str(title) for title in titles[:3]))
+        return "；".join(parts) if parts else "近三日无重点公告"
+
+    @staticmethod
+    def _build_news_summary(sentiment: str, risk_tags: list[str], titles: list[str]) -> str:
+        parts = [f"情绪 {sentiment}"]
+        if risk_tags:
+            parts.append(f"关键词 {('、'.join(risk_tags[:4]))}")
+        if titles:
+            parts.append("；".join(str(title) for title in titles[:3]))
+        return "；".join(parts) if parts else "近三日无重点新闻"
 
     @staticmethod
     def _extract_event_tags(titles: Iterable[str]) -> list[str]:
@@ -1012,8 +1099,8 @@ class FeedSyncManager:
 
     @staticmethod
     def _news_score(title: str) -> int:
-        positive = ["回购", "增持", "中标", "签约", "增长", "新高", "突破", "分红", "预增"]
-        negative = ["减持", "处罚", "问询", "诉讼", "下滑", "亏损", "暴跌", "解禁", "违约"]
+        positive = ["回购", "增持", "中标", "签约", "增长", "新高", "突破", "分红", "预增", "订单", "回暖", "扩产"]
+        negative = ["减持", "处罚", "问询", "诉讼", "下滑", "亏损", "暴跌", "解禁", "违约", "风险", "下修", "预减"]
         if any(key in title for key in negative):
             return -1
         if any(key in title for key in positive):
