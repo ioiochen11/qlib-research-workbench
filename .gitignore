@@ -1,5 +1,8 @@
 .DS_Store
 .venv/
+.venv-clawteam/
+.clawteam-workbench/
+.tmp-clawteam/
 __pycache__/
 *.pyc
 *.pyo

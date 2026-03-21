@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 
+from .clawteam_adapter import default_data_dir
+from .clawteam_runner import ClawTeamDailyRunner
 from .app import RollingTrader
 from .qlib_check import run_qlib_smoke
 
@@ -45,6 +47,20 @@ def build_parser() -> argparse.ArgumentParser:
     data_subparsers.add_parser("qlib-check", help="Initialize qlib and read sample features.")
 
     subparsers.add_parser("daily-run", help="Run the post-close daily pipeline for SSE180 low-price recommendations.")
+    clawteam_parser = subparsers.add_parser("clawteam-runner", help="Run the post-close workflow with ClawTeam task tracking.")
+    clawteam_parser.add_argument("--repo", default=".", help="Repository path.")
+    clawteam_parser.add_argument("--data-dir", default=None, help="ClawTeam data dir. Defaults to .clawteam-workbench under repo.")
+    clawteam_parser.add_argument("--clawteam-bin", default=".venv-clawteam/bin/clawteam", help="Path to clawteam executable.")
+    clawteam_parser.add_argument("--team-name", default=None, help="Optional fixed team name.")
+    clawteam_parser.add_argument("--leader-name", default="post-close-runner", help="Leader / runner agent name.")
+    clawteam_parser.add_argument("--market-timeout", type=int, default=1800, help="Timeout for sync-market in seconds.")
+    clawteam_parser.add_argument("--feed-timeout", type=int, default=1800, help="Timeout for fundamentals/events/gate in seconds.")
+    clawteam_parser.add_argument("--train-timeout", type=int, default=7200, help="Timeout for train-start in seconds.")
+    clawteam_parser.add_argument("--report-timeout", type=int, default=1800, help="Timeout for export-reports in seconds.")
+    clawteam_parser.add_argument("--market-limit", type=int, default=None, help="Only sync the first N instruments for market.")
+    clawteam_parser.add_argument("--fundamentals-limit", type=int, default=None, help="Only sync the first N instruments for fundamentals.")
+    clawteam_parser.add_argument("--events-limit", type=int, default=None, help="Only sync the first N instruments for events.")
+    clawteam_parser.add_argument("--event-lookback-days", type=int, default=3, help="How many recent calendar days to include for events.")
 
     train_parser = subparsers.add_parser("train", help="Training subcommands.")
     train_subparsers = train_parser.add_subparsers(dest="train_command", required=True)
@@ -277,6 +293,36 @@ def main(argv: list[str] | None = None) -> int:
         print(f"latest_recommendation_report_html={info['latest_recommendation_report_html']}")
         print(f"latest_recommendation_spotlight_md={info['latest_recommendation_spotlight_md']}")
         print(f"latest_recommendation_spotlight_html={info['latest_recommendation_spotlight_html']}")
+        return 0
+
+    if args.command == "clawteam-runner":
+        data_dir = args.data_dir or str(default_data_dir(args.repo))
+        runner = ClawTeamDailyRunner(
+            config=app.config,
+            repo_path=args.repo,
+            clawteam_bin=args.clawteam_bin,
+            data_dir=data_dir,
+            team_name=args.team_name,
+            leader_name=args.leader_name,
+            market_timeout_seconds=args.market_timeout,
+            feed_timeout_seconds=args.feed_timeout,
+            train_timeout_seconds=args.train_timeout,
+            report_timeout_seconds=args.report_timeout,
+            market_limit=args.market_limit,
+            fundamentals_limit=args.fundamentals_limit,
+            events_limit=args.events_limit,
+            event_lookback_days=args.event_lookback_days,
+        )
+        summary = runner.run()
+        print(f"team_name={summary['team_name']}")
+        print(f"run_dir={summary['run_dir']}")
+        print(f"summary_path={summary['summary_path']}")
+        print(f"skipped={summary['skipped']}")
+        print(f"board_command={summary['board_command']}")
+        for key, task in summary["tasks"].items():
+            print(f"task_{key}_status={task['status']}")
+            print(f"task_{key}_description={task['description']}")
+            print(f"task_{key}_log_path={task['log_path']}")
         return 0
 
     if args.command == "train":

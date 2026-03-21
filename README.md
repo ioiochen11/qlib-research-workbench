@@ -4,53 +4,51 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![Status](https://img.shields.io/badge/status-active-success)
 
-A practical Qlib-based research workbench for validating Chinese market data, training rolling models, generating recommendation briefs, and running review and backtest workflows.
+一个面向 A 股研究流程的 Qlib 工作台，用来做收盘后数据校验、滚动训练、推荐日报生成，以及复盘和回测。
 
-中文说明见 [docs/README_CN.md](docs/README_CN.md)。
+仓库首页现在以中文说明为主，更完整的中文文档见 [docs/README_CN.md](docs/README_CN.md)。
 
-The current default workflow is intentionally opinionated:
+当前默认工作流是：
 
-- target `沪深300`
-- keep only `30 元以下` names for both training and recommendation
-- sync market / fundamentals / events after the close
-- refuse to overwrite `latest_*` reports when freshness checks fail
-- generate fully Chinese `CSV / Markdown / HTML` daily briefs for manual validation
+- 目标股票池默认是 `沪深300`
+- 训练和推荐都只保留 `30 元以下` 的股票
+- 收盘后同步 `market / fundamentals / events`
+- freshness gate 不通过时，不覆盖已有 `latest_*` 日报
+- 生成全中文的 `CSV / Markdown / HTML` 推荐日报，方便人工核对
 
-This project started as a focused refactor of [`touhoufan2024/qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant), then grew into a cleaner public-facing repo with a testable CLI, documentation, and CI.
+这个项目最初是对 [`touhoufan2024/qlibAssistant`](https://github.com/touhoufan2024/qlibAssistant) 的一次聚焦重构，后来逐步扩展成一个更适合公开维护的研究型仓库，补上了 CLI、测试、文档、CI，以及收盘后多 feed 校验流程。
 
-If this project is useful, a GitHub star helps a lot.
+如果这个项目对你有帮助，欢迎点个 Star。
 
-## At A Glance
+## 一眼看懂
 
-- Post-close validated feed pipeline with `raw / gold / manifests`
-- Local Qlib workflow that does not depend on someone else updating a release package every day
-- Rolling training and recommendation generation on top of `Alpha158`
-- Chinese recommendation reports designed for human cross-checking, not just notebook output
-- Built-in freshness gate so stale or broken data skips formal reporting instead of polluting `latest_*`
+- 收盘后多 feed 校验流水线，包含 `raw / gold / manifests`
+- 本地 Qlib 数据工作流，不再依赖别人每天更新 release 数据包
+- 基于 `Alpha158` 的滚动训练与推荐生成
+- 面向人工核对的中文推荐日报，而不只是 notebook 输出
+- 内置 freshness gate，脏数据或陈旧数据不会污染 `latest_*`
+- 可选的 `ClawTeam` 收盘后 runner，带任务看板、步骤日志和 summary 快照
 
-## Why This Repo
+## 为什么做这个仓库
 
-`qlibAssistant` has a strong idea: turn Qlib into a daily research pipeline instead of a one-off notebook. This repo keeps that idea, but reshapes it into a workbench that is easier to validate, extend, and publish.
+`qlibAssistant` 最有价值的点，是把 Qlib 从“一次性的 notebook”变成“每天可运行的研究流水线”。这个仓库保留了这个方向，但把它整理成一个更容易验证、扩展和公开维护的工作台。
 
-What it gives you today:
+它现在已经具备：
 
-- Remote data probing, download, extraction, and verification
-- AkShare-based daily sync so you can refresh local CN daily bars without waiting for a remote package update
-- Multi-feed post-close sync with raw / gold / manifest layers for market, fundamentals, and events
-- Freshness gating so invalid or stale feeds skip the formal daily report instead of poisoning the latest output
-- Optional SSE180 universe refresh from AkShare with a local cached fallback
-- Local Qlib initialization and feature-read smoke checks
-- Rolling-task training with sample-level `<= 30 元` price filtering
-- Prediction aggregation and daily selection report export
-- Rule-based entry-plan generation for selected candidates
-- Validation-friendly recommendation tables with names, raw-price entry levels, and next-trade-day hit checks
-- Fully Chinese CSV / Markdown / HTML daily recommendation reports
-- A one-shot `daily-run` pipeline for post-close automation
-- Review summaries and top-k backtest reports
-- `mlruns` backup and restore utilities
-- Unit tests, docs, Make targets, and GitHub Actions CI
+- 远端数据探测、下载、解压和本地校验
+- 基于 AkShare 的日频同步，不用再等第三方包更新
+- `market / fundamentals / events` 的收盘后多 feed 同步与校验
+- freshness gate，保证脏数据不会进入正式日报
+- 可选的上证 180 股票池刷新和本地缓存回退
+- 本地 Qlib 初始化与特征读取 smoke check
+- 带样本级 `<= 30 元` 过滤的滚动训练
+- 预测聚合、每日选股报表、推荐价位计划
+- 全中文的 CSV / Markdown / HTML 推荐日报
+- `daily-run` 和 `clawteam-runner` 两套收盘后执行方式
+- 复盘、TopK 回测、`mlruns` 备份恢复
+- 单元测试、文档、Makefile 快捷命令和 GitHub Actions CI
 
-## How It Works
+## 工作流
 
 ```text
 Post-close sync
@@ -137,6 +135,7 @@ Run the full post-close pipeline:
 
 ```bash
 .venv/bin/python roll.py daily-run
+.venv/bin/python roll.py clawteam-runner
 ```
 
 ## Common Commands
@@ -184,6 +183,7 @@ Analysis:
 .venv/bin/python roll.py model review
 .venv/bin/python roll.py model backtest
 .venv/bin/python roll.py daily-run
+.venv/bin/python roll.py clawteam-runner
 ```
 
 For validation work, `model recommendations` is the best default view. It shows:
@@ -215,6 +215,14 @@ If you want a more analyst-style summary focused only on the most important cand
 It writes both dated files and stable `latest_*` files under `~/.qlibAssistant/analysis`, so a local automation can keep replacing the latest daily brief without removing older dated archives. When the configured stock pool is `上证180`, it also refreshes the local `sse180.txt` universe file first.
 
 If the configured freshness gate fails, `daily-run` now skips training and formal report generation. In that case it keeps the previous `latest_*` artifacts untouched and writes the reason into the manifest folder under `~/.qlibAssistant/daily_sync/manifests/YYYY-MM-DD/`.
+
+If you want the same post-close flow with task-level tracking, run:
+
+```bash
+.venv/bin/python roll.py clawteam-runner
+```
+
+That creates a ClawTeam team for the run, updates task states step by step, writes per-task logs under `.clawteam-workbench/runs/<team>/logs/`, and saves a summary JSON for later inspection.
 
 ## Outputs You Can Open Directly
 
@@ -254,6 +262,7 @@ make model-report
 make model-review
 make model-backtest
 make daily-run
+make clawteam-runner
 make clean-local
 ```
 

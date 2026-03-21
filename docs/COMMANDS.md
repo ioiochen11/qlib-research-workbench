@@ -30,6 +30,7 @@ python3 roll.py data verify-freshness --date 2026-03-20
 python3 roll.py data show-manifest --date 2026-03-20
 python3 roll.py data qlib-check
 python3 roll.py daily-run
+python3 roll.py clawteam-runner
 ```
 
 `sync-market` writes raw source snapshots under `raw/market/`, validates AkShare against Eastmoney, and only then updates the local Qlib provider and `gold/market/`.
@@ -37,6 +38,8 @@ python3 roll.py daily-run
 `sync-fundamentals` and `sync-events` write structured feed snapshots under `gold/fundamentals/` and `gold/events/`.
 
 `verify-freshness` checks the configured post-close gate. If a required feed is stale, invalid, or missing, `daily-run` will skip formal training and report generation.
+
+`clawteam-runner` is the stable task-tracked variant of the post-close flow. It creates a ClawTeam board for the run, executes each business step locally, stores per-task logs, and writes a run summary JSON under `.clawteam-workbench/runs/<team>/`.
 
 ## Training
 
@@ -110,5 +113,6 @@ make model-review
 make model-backtest
 make model-backup
 make daily-run
+make clawteam-runner
 make clean-local
 ```

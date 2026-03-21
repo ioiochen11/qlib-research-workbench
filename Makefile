@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: test probe status verify qlib-check doctor refresh-sse180 sync-akshare train-plan train-smoke model-top model-recommendations model-recommendation-report model-recommendation-html model-report model-review model-backtest model-backup daily-run clean-local
+.PHONY: test probe status verify qlib-check doctor refresh-sse180 sync-akshare train-plan train-smoke model-top model-recommendations model-recommendation-report model-recommendation-html model-report model-review model-backtest model-backup daily-run clawteam-runner clean-local
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
@@ -61,6 +61,9 @@ model-backup:
 
 daily-run:
 	$(VENV_PYTHON) roll.py daily-run
+
+clawteam-runner:
+	$(VENV_PYTHON) roll.py clawteam-runner
 
 clean-local:
 	rm -f qlib_bin.tar.gz

@@ -155,6 +155,12 @@ class CLIParserTests(TestCase):
         args = parser.parse_args(["daily-run"])
         self.assertEqual(args.command, "daily-run")
 
+    def test_roll_cli_accepts_clawteam_runner(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["clawteam-runner", "--market-limit", "5"])
+        self.assertEqual(args.command, "clawteam-runner")
+        self.assertEqual(args.market_limit, 5)
+
     def test_data_main_accepts_argv(self) -> None:
         with patch("qlib_assistant_refactor.cli.AppConfig.from_yaml") as mock_from_yaml:
             config = mock_from_yaml.return_value
@@ -232,3 +238,30 @@ class CLIParserTests(TestCase):
         self.assertEqual(result, 0)
         self.assertIn("daily_run_skipped=True", stdout.getvalue())
         self.assertIn("manifest_dir=/tmp/manifests/2026-03-20", stdout.getvalue())
+
+    def test_roll_main_clawteam_runner_accepts_argv(self) -> None:
+        with patch("qlib_assistant_refactor.roll_cli.RollingTrader") as mock_app_cls:
+            app = mock_app_cls.return_value
+            app.config = object()
+            with patch("qlib_assistant_refactor.roll_cli.ClawTeamDailyRunner") as mock_runner_cls:
+                runner = mock_runner_cls.return_value
+                runner.run.return_value = {
+                    "team_name": "demo-team",
+                    "run_dir": "/tmp/demo",
+                    "summary_path": "/tmp/demo/summary.json",
+                    "skipped": True,
+                    "board_command": "clawteam board show demo-team",
+                    "tasks": {
+                        "market": {
+                            "status": "completed",
+                            "description": "行情完成",
+                            "log_path": "/tmp/demo/logs/market.log",
+                        }
+                    },
+                }
+                with patch("sys.stdout", new_callable=StringIO) as stdout:
+                    result = roll_main(["clawteam-runner", "--market-limit", "5"])
+
+        self.assertEqual(result, 0)
+        self.assertIn("team_name=demo-team", stdout.getvalue())
+        self.assertIn("task_market_status=completed", stdout.getvalue())
