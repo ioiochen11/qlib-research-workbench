@@ -91,6 +91,14 @@ class FeedSyncManager:
         validation_errors: list[str] = []
         total_rows = 0
 
+        cached_summary = self._reuse_validated_market_cache(
+            gold_dir=gold_dir,
+            symbols=symbols,
+            as_of_date=as_of_date,
+        )
+        if cached_summary is not None:
+            return cached_summary
+
         for symbol in symbols:
             primary = self._fetch_market_frame(symbol, start_date, end_date, source_name="akshare", raw_dir=raw_ak_dir)
             backup = self._fetch_market_frame(symbol, start_date, end_date, source_name="eastmoney", raw_dir=raw_em_dir)
@@ -199,6 +207,84 @@ class FeedSyncManager:
             validation_status="failed",
             validation_errors=manifest.validation_errors,
             raw_paths=[Path(item) for item in manifest.raw_paths],
+        )
+
+    def _reuse_validated_market_cache(
+        self,
+        *,
+        gold_dir: Path,
+        symbols: list[str],
+        as_of_date: str,
+    ) -> FeedSyncSummary | None:
+        if not self._should_use_quote_snapshot(as_of_date):
+            return None
+        cached_symbols: list[str] = []
+        total_rows = 0
+        for symbol in symbols:
+            path = gold_dir / f"{symbol}.csv"
+            if not path.exists():
+                continue
+            try:
+                df = pd.read_csv(path, usecols=["date"])
+            except Exception:
+                continue
+            dates = df["date"].astype(str)
+            if as_of_date not in set(dates):
+                continue
+            cached_symbols.append(symbol)
+            total_rows += int((dates == as_of_date).sum())
+
+        if len(cached_symbols) != len(symbols):
+            return None
+
+        dump_summary = dump_csv_folder_to_qlib(gold_dir, self.config.provider_uri)
+        coverage_ratio = len(cached_symbols) / len(symbols) if symbols else 0.0
+        validation_errors: list[str] = []
+        if self.config.benchmark_symbol not in cached_symbols:
+            validation_errors.append(f"missing_benchmark:{self.config.benchmark_symbol}")
+        if coverage_ratio < float(self.config.min_universe_coverage):
+            validation_errors.append(
+                f"coverage_below_threshold:{coverage_ratio:.3f}<{self.config.min_universe_coverage:.3f}"
+            )
+        eligible = self.config.benchmark_symbol in cached_symbols and coverage_ratio >= float(self.config.min_universe_coverage)
+        snapshot_path = self._gold_dir("market") / f"validated_snapshot_{as_of_date}.csv"
+        self._build_market_snapshot(gold_dir=gold_dir, symbols=cached_symbols, as_of_date=as_of_date).to_csv(
+            snapshot_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        manifest = FeedManifest(
+            feed_type="market",
+            source_name="validated_cache",
+            as_of_date=as_of_date,
+            fetched_at=self._now_iso(),
+            coverage_ratio=coverage_ratio,
+            record_count=total_rows,
+            validation_status="passed" if eligible else "failed",
+            validation_errors=validation_errors,
+            eligible_for_daily_run=eligible,
+            output_path=str(snapshot_path),
+            raw_paths=[],
+            extra={
+                "validated_symbol_count": len(cached_symbols),
+                "requested_symbol_count": len(symbols),
+                "dump_mode": dump_summary.mode,
+                "calendar_count": dump_summary.calendar_count,
+                "cache_reused": True,
+            },
+        )
+        manifest_path = self._save_manifest(manifest)
+        return FeedSyncSummary(
+            feed_type="market",
+            as_of_date=as_of_date,
+            output_path=snapshot_path,
+            manifest_path=manifest_path,
+            record_count=total_rows,
+            coverage_ratio=coverage_ratio,
+            eligible_for_daily_run=eligible,
+            validation_status=manifest.validation_status,
+            validation_errors=manifest.validation_errors,
+            raw_paths=[],
         )
 
     def sync_fundamentals(self, as_of_date: str | None = None, limit: int | None = None) -> FeedSyncSummary:
@@ -419,24 +505,34 @@ class FeedSyncManager:
         raw_dir: Path,
     ) -> pd.DataFrame:
         raw_dir.mkdir(parents=True, exist_ok=True)
-        if source_name == "akshare":
-            fetcher = lambda: self.akshare._fetch_symbol(symbol, start_date=start_date, end_date=end_date)
-        elif source_name == "eastmoney":
-            fetcher = lambda: self._fetch_eastmoney_symbol(symbol, start_date=start_date, end_date=end_date)
+        cached_frame = self.akshare._load_cached_symbol_csv(
+            csv_dir=raw_dir,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if self._prefer_cached_market_frame(cached_frame=cached_frame, end_date=end_date):
+            frame = cached_frame
         else:
-            raise ValueError(f"Unsupported market source: {source_name}")
+            if source_name == "akshare":
+                fetcher = lambda: self.akshare._fetch_symbol(symbol, start_date=start_date, end_date=end_date)
+            elif source_name == "eastmoney":
+                fetcher = lambda: self._fetch_eastmoney_symbol(symbol, start_date=start_date, end_date=end_date)
+            else:
+                raise ValueError(f"Unsupported market source: {source_name}")
 
-        try:
-            frame = fetcher()
-        except Exception:
-            frame = self.akshare._load_cached_symbol_csv(
-                csv_dir=raw_dir,
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-            )
+            try:
+                frame = fetcher()
+            except Exception:
+                frame = cached_frame
         if frame is None:
             frame = pd.DataFrame()
+        frame = self._supplement_market_frame_with_snapshot(
+            frame=frame,
+            symbol=symbol,
+            end_date=end_date,
+            source_name=source_name,
+        )
         if not frame.empty:
             merged = self.akshare._merge_with_existing_csv(csv_dir=raw_dir, symbol=symbol, fresh=frame)
             merged.to_csv(raw_dir / f"{symbol}.csv", index=False, encoding="utf-8")
@@ -448,6 +544,124 @@ class FeedSyncManager:
                 work["date"] = work["date"].dt.strftime("%Y-%m-%d")
                 return work
         return frame
+
+    def _prefer_cached_market_frame(self, cached_frame: pd.DataFrame, end_date: str) -> bool:
+        if cached_frame is None or cached_frame.empty or "date" not in cached_frame.columns:
+            return False
+        target_date = pd.Timestamp(end_date).strftime("%Y-%m-%d")
+        cached_dates = set(cached_frame["date"].astype(str))
+        if target_date in cached_dates:
+            return True
+        if self._should_use_quote_snapshot(target_date):
+            return True
+        latest_cached = max(cached_dates) if cached_dates else ""
+        return bool(latest_cached) and latest_cached >= target_date
+
+    def _supplement_market_frame_with_snapshot(
+        self,
+        frame: pd.DataFrame,
+        symbol: str,
+        end_date: str,
+        source_name: str,
+    ) -> pd.DataFrame:
+        target_date = pd.Timestamp(end_date).strftime("%Y-%m-%d")
+        if not self._should_use_quote_snapshot(target_date):
+            return frame
+
+        existing = frame.copy() if frame is not None else pd.DataFrame()
+
+        snapshot = self._fetch_quote_snapshot(symbol=symbol, as_of_date=target_date, source_name=source_name)
+        if snapshot.empty:
+            return existing
+        if existing.empty:
+            return snapshot
+        combined = pd.concat([existing, snapshot], ignore_index=True, sort=False)
+        combined["date"] = pd.to_datetime(combined["date"]).dt.strftime("%Y-%m-%d")
+        combined = combined.sort_values("date").drop_duplicates(subset=["date"], keep="last").reset_index(drop=True)
+        return combined
+
+    def _should_use_quote_snapshot(self, as_of_date: str) -> bool:
+        today = pd.Timestamp.today().strftime("%Y-%m-%d")
+        return as_of_date == today and self._after_market_close(as_of_date)
+
+    def _fetch_quote_snapshot(self, symbol: str, as_of_date: str, source_name: str) -> pd.DataFrame:
+        if source_name == "akshare":
+            return self._fetch_sina_quote_snapshot(symbol=symbol, as_of_date=as_of_date)
+        if source_name == "eastmoney":
+            return self._fetch_tencent_quote_snapshot(symbol=symbol, as_of_date=as_of_date)
+        return pd.DataFrame()
+
+    def _fetch_sina_quote_snapshot(self, symbol: str, as_of_date: str) -> pd.DataFrame:
+        quote_symbol = symbol.lower()
+        response = requests.get(
+            f"https://hq.sinajs.cn/list={quote_symbol}",
+            headers={
+                "Referer": "https://finance.sina.com.cn",
+                "User-Agent": "Mozilla/5.0",
+            },
+            timeout=(3, 8),
+        )
+        response.raise_for_status()
+        payload = response.text
+        if '="' not in payload:
+            return pd.DataFrame()
+        body = payload.split('="', 1)[1].rsplit('";', 1)[0]
+        parts = body.split(",")
+        if len(parts) < 10:
+            return pd.DataFrame()
+        quote_date = self._extract_sina_quote_date(parts)
+        if quote_date != as_of_date:
+            return pd.DataFrame()
+        row = {
+            "date": quote_date,
+            "symbol": symbol,
+            "name": str(parts[0]).strip() or self.akshare._load_name_map().get(symbol, symbol),
+            "open": self._safe_float(parts[1]),
+            "close": self._safe_float(parts[3]),
+            "high": self._safe_float(parts[4]),
+            "low": self._safe_float(parts[5]),
+            "volume": self._safe_float(parts[8]),
+            "factor": 1.0,
+        }
+        return pd.DataFrame([row])
+
+    def _fetch_tencent_quote_snapshot(self, symbol: str, as_of_date: str) -> pd.DataFrame:
+        quote_symbol = symbol.lower()
+        response = requests.get(
+            f"https://qt.gtimg.cn/q={quote_symbol}",
+            headers={
+                "Referer": "https://gu.qq.com",
+                "User-Agent": "Mozilla/5.0",
+            },
+            timeout=(3, 8),
+        )
+        response.raise_for_status()
+        payload = response.text
+        if '="' not in payload:
+            return pd.DataFrame()
+        body = payload.split('="', 1)[1].rsplit('";', 1)[0]
+        parts = body.split("~")
+        if len(parts) < 35:
+            return pd.DataFrame()
+        quote_stamp = str(parts[30]).strip()
+        quote_date = pd.Timestamp(quote_stamp[:8]).strftime("%Y-%m-%d") if len(quote_stamp) >= 8 else ""
+        if quote_date != as_of_date:
+            return pd.DataFrame()
+        volume = self._safe_float(parts[6])
+        if not self.akshare._is_index_symbol(symbol):
+            volume *= 100.0
+        row = {
+            "date": quote_date,
+            "symbol": symbol,
+            "name": str(parts[1]).strip() or self.akshare._load_name_map().get(symbol, symbol),
+            "open": self._safe_float(parts[5]),
+            "close": self._safe_float(parts[3]),
+            "high": self._safe_float(parts[33]),
+            "low": self._safe_float(parts[34]),
+            "volume": volume,
+            "factor": 1.0,
+        }
+        return pd.DataFrame([row])
 
     def _fetch_eastmoney_symbol(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
         secid = self._eastmoney_secid(symbol)
@@ -549,6 +763,25 @@ class FeedSyncManager:
         if validated.empty:
             return pd.DataFrame(), errors[:20]
         return validated.reset_index(drop=True), errors[:20]
+
+    @staticmethod
+    def _safe_float(value: Any) -> float:
+        try:
+            return float(str(value).replace(",", "").strip())
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _extract_sina_quote_date(parts: list[str]) -> str:
+        for item in reversed(parts):
+            text = str(item).strip()
+            if not text:
+                continue
+            try:
+                return pd.Timestamp(text).strftime("%Y-%m-%d")
+            except Exception:
+                continue
+        return ""
 
     def _build_market_snapshot(self, gold_dir: Path, symbols: list[str], as_of_date: str) -> pd.DataFrame:
         rows = []
