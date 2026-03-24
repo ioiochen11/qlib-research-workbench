@@ -85,16 +85,25 @@ class RollingTraderTests(TestCase):
             html_path = analysis_dir / "recommendation_report_2026-03-20_filtered_maxprice30.html"
             spotlight_md_path = analysis_dir / "recommendation_spotlight_2026-03-20_filtered_maxprice30.md"
             spotlight_html_path = analysis_dir / "recommendation_spotlight_2026-03-20_filtered_maxprice30.html"
+            weekly_csv_path = analysis_dir / "weekly_recommendations_2026-03-20_filtered_maxprice30.csv"
+            weekly_md_path = analysis_dir / "weekly_recommendation_report_2026-03-20_filtered_maxprice30.md"
+            weekly_html_path = analysis_dir / "weekly_recommendation_report_2026-03-20_filtered_maxprice30.html"
             csv_path.write_text("股票代码\nSH600000\n", encoding="utf-8")
             md_path.write_text("# 推荐验证日报\n", encoding="utf-8")
             html_path.write_text("<html>日报</html>", encoding="utf-8")
             spotlight_md_path.write_text("# 前三候选解读\n", encoding="utf-8")
             spotlight_html_path.write_text("<html>解读</html>", encoding="utf-8")
+            weekly_csv_path.write_text("股票代码\nSH600000\n", encoding="utf-8")
+            weekly_md_path.write_text("# 最近5个交易日推荐周报\n", encoding="utf-8")
+            weekly_html_path.write_text("<html>周报</html>", encoding="utf-8")
             trader.model.save_recommendation_sheet = Mock(return_value=csv_path)
             trader.model.save_recommendation_report = Mock(return_value=md_path)
             trader.model.save_recommendation_html = Mock(return_value=html_path)
             trader.model.save_recommendation_spotlight = Mock(return_value=spotlight_md_path)
             trader.model.save_recommendation_spotlight_html = Mock(return_value=spotlight_html_path)
+            trader.model.save_weekly_recommendation_sheet = Mock(return_value=weekly_csv_path)
+            trader.model.save_weekly_recommendation_report = Mock(return_value=weekly_md_path)
+            trader.model.save_weekly_recommendation_html = Mock(return_value=weekly_html_path)
 
             result = trader.daily_run()
 
@@ -104,6 +113,9 @@ class RollingTraderTests(TestCase):
             self.assertTrue((analysis_dir / "latest_recommendation_report.html").exists())
             self.assertTrue((analysis_dir / "latest_recommendation_spotlight.md").exists())
             self.assertTrue((analysis_dir / "latest_recommendation_spotlight.html").exists())
+            self.assertTrue((analysis_dir / "latest_weekly_recommendations.csv").exists())
+            self.assertTrue((analysis_dir / "latest_weekly_recommendation_report.md").exists())
+            self.assertTrue((analysis_dir / "latest_weekly_recommendation_report.html").exists())
 
     def test_daily_run_skips_latest_overwrite_when_freshness_gate_fails(self) -> None:
         with TemporaryDirectory() as tmpdir:

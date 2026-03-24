@@ -108,6 +108,22 @@ class CLIParserTests(TestCase):
         self.assertEqual(args.limit, 3)
         self.assertTrue(args.raw)
 
+    def test_roll_cli_accepts_model_save_weekly_report(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["model", "save-weekly-report", "--end-date", "2026-03-21", "--trading-days", "5"])
+        self.assertEqual(args.command, "model")
+        self.assertEqual(args.model_command, "save-weekly-report")
+        self.assertEqual(args.end_date, "2026-03-21")
+        self.assertEqual(args.trading_days, 5)
+
+    def test_roll_cli_accepts_model_save_weekly_sheet(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["model", "save-weekly-sheet", "--end-date", "2026-03-21", "--trading-days", "5"])
+        self.assertEqual(args.command, "model")
+        self.assertEqual(args.model_command, "save-weekly-sheet")
+        self.assertEqual(args.end_date, "2026-03-21")
+        self.assertEqual(args.trading_days, 5)
+
     def test_roll_cli_accepts_train_plan_limit(self) -> None:
         parser = build_roll_parser()
         args = parser.parse_args(["train", "plan", "--limit", "3"])
@@ -206,11 +222,17 @@ class CLIParserTests(TestCase):
                 "recommendation_report_html": "/tmp/a.html",
                 "recommendation_spotlight_md": "/tmp/spot.md",
                 "recommendation_spotlight_html": "/tmp/spot.html",
+                "weekly_recommendations_csv": "/tmp/w.csv",
+                "weekly_recommendation_report_md": "/tmp/w.md",
+                "weekly_recommendation_report_html": "/tmp/w.html",
                 "latest_recommendations_csv": "/tmp/latest.csv",
                 "latest_recommendation_report_md": "/tmp/latest.md",
                 "latest_recommendation_report_html": "/tmp/latest.html",
                 "latest_recommendation_spotlight_md": "/tmp/latest-spot.md",
                 "latest_recommendation_spotlight_html": "/tmp/latest-spot.html",
+                "latest_weekly_recommendations_csv": "/tmp/latest-w.csv",
+                "latest_weekly_recommendation_report_md": "/tmp/latest-w.md",
+                "latest_weekly_recommendation_report_html": "/tmp/latest-w.html",
             }
             with patch("sys.stdout", new_callable=StringIO) as stdout:
                 result = roll_main(["daily-run"])
@@ -218,6 +240,7 @@ class CLIParserTests(TestCase):
         self.assertEqual(result, 0)
         self.assertIn("latest_recommendation_report_html=/tmp/latest.html", stdout.getvalue())
         self.assertIn("latest_recommendation_spotlight_html=/tmp/latest-spot.html", stdout.getvalue())
+        self.assertIn("latest_weekly_recommendation_report_html=/tmp/latest-w.html", stdout.getvalue())
 
     def test_roll_main_daily_run_handles_skip(self) -> None:
         with patch("qlib_assistant_refactor.roll_cli.RollingTrader") as mock_app_cls:

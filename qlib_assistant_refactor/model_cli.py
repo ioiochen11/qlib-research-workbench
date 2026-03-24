@@ -408,6 +408,344 @@ class ModelCLI:
         self._recommendation_sheet_zh(sheet).to_csv(output, index=False, encoding="utf-8-sig")
         return output
 
+    def weekly_recommendation_sheet(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 5,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> pd.DataFrame:
+        max_price = self._resolved_max_price(max_price)
+        files = self._recent_recommendation_files(
+            end_date=end_date,
+            filtered=filtered,
+            max_price=max_price,
+            trading_days=trading_days,
+        )
+        if not files:
+            return pd.DataFrame(
+                columns=[
+                    "signal_date",
+                    "week_end_date",
+                    "score_rank",
+                    "instrument",
+                    "name",
+                    "avg_score",
+                    "signal_close",
+                    "week_end_close",
+                    "weekly_return",
+                    "week_result",
+                    "recommendation_hit",
+                    "score_direction_match",
+                ]
+            )
+
+        week_end_date = max(item[0] for item in files)
+        rows: list[dict[str, object]] = []
+        for signal_date, path in files:
+            try:
+                daily = pd.read_csv(path)
+            except Exception:
+                continue
+            if daily.empty or "股票代码" not in daily.columns:
+                continue
+            for _, row in daily.iterrows():
+                instrument = str(row.get("股票代码", "")).strip()
+                if not instrument:
+                    continue
+                signal_close = float(pd.to_numeric(row.get("收盘价"), errors="coerce"))
+                week_bar = self._lookup_raw_daily_bar(instrument, week_end_date)
+                week_end_close = float(week_bar["close"]) if week_bar is not None else np.nan
+                weekly_return = np.nan
+                week_result = "缺少周末价格"
+                hit = "否"
+                direction_match = "否"
+                if signal_date == week_end_date and signal_close > 0:
+                    week_end_close = signal_close
+                    weekly_return = 0.0
+                    week_result = "本周最后一个交易日信号"
+                    direction_match = "是" if float(row.get("平均分", 0.0)) <= 0 else "否"
+                elif pd.notna(week_end_close) and signal_close > 0:
+                    weekly_return = (week_end_close / signal_close) - 1.0
+                    if weekly_return > 0:
+                        week_result = "周内上涨"
+                        hit = "是"
+                    elif weekly_return < 0:
+                        week_result = "周内下跌"
+                    else:
+                        week_result = "周内持平"
+                    avg_score = float(pd.to_numeric(row.get("平均分"), errors="coerce"))
+                    direction_match = "是" if (avg_score >= 0 and weekly_return >= 0) or (avg_score < 0 and weekly_return <= 0) else "否"
+
+                rows.append(
+                    {
+                        "signal_date": signal_date,
+                        "week_end_date": week_end_date,
+                        "score_rank": int(pd.to_numeric(row.get("排名"), errors="coerce") or 0),
+                        "instrument": instrument,
+                        "name": str(row.get("股票名称", "")).strip() or instrument,
+                        "avg_score": float(pd.to_numeric(row.get("平均分"), errors="coerce")),
+                        "signal_close": signal_close,
+                        "week_end_close": week_end_close,
+                        "weekly_return": weekly_return,
+                        "week_result": week_result,
+                        "recommendation_hit": hit,
+                        "score_direction_match": direction_match,
+                    }
+                )
+        result = pd.DataFrame(rows)
+        if result.empty:
+            return result
+        return result.sort_values(["signal_date", "score_rank", "instrument"]).reset_index(drop=True)
+
+    def weekly_recommendation_report(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 5,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> str:
+        max_price = self._resolved_max_price(max_price)
+        sheet = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        report_end = end_date or (str(sheet["week_end_date"].iloc[0]) if not sheet.empty else "unknown")
+        lines = [
+            f"# 最近 {trading_days} 个交易日推荐周报（截至 {report_end}）",
+            "",
+            f"- 股票池：`{self._zh_stock_pool(self.config.stock_pool)}`",
+            f"- 使用筛选结果：`{'是' if filtered else '否'}`",
+            f"- 价格上限：`{'不限' if max_price is None else f'{max_price:.2f} 元'}`",
+            f"- 纳入信号数：`{len(sheet)}`",
+        ]
+        if sheet.empty:
+            lines.extend(["", "暂无可用于生成周报的推荐记录。"])
+            return "\n".join(lines) + "\n"
+
+        valid = sheet.dropna(subset=["weekly_return"]).copy()
+        hit_ratio = float((valid["recommendation_hit"] == "是").mean()) if not valid.empty else 0.0
+        direction_ratio = float((valid["score_direction_match"] == "是").mean()) if not valid.empty else 0.0
+        avg_return = float(valid["weekly_return"].mean()) if not valid.empty else 0.0
+        lines.extend(
+            [
+                "",
+                "## 总体结果",
+                "",
+                f"- 可核对信号数：`{len(valid)}`",
+                f"- 推荐命中率：`{hit_ratio:.2%}`",
+                f"- 分数方向一致率：`{direction_ratio:.2%}`",
+                f"- 平均周度收益：`{avg_return:.2%}`",
+            ]
+        )
+
+        daily_summary = (
+            valid.groupby("signal_date", as_index=False)
+            .agg(
+                信号数=("instrument", "size"),
+                命中率=("recommendation_hit", lambda s: float((s == "是").mean())),
+                方向一致率=("score_direction_match", lambda s: float((s == "是").mean())),
+                平均周收益=("weekly_return", "mean"),
+            )
+            if not valid.empty
+            else pd.DataFrame(columns=["signal_date", "信号数", "命中率", "方向一致率", "平均周收益"])
+        )
+        if not daily_summary.empty:
+            show = daily_summary.copy()
+            show.columns = ["信号日期", "信号数", "命中率", "方向一致率", "平均周收益"]
+            show["命中率"] = show["命中率"].map(lambda v: f"{float(v):.2%}")
+            show["方向一致率"] = show["方向一致率"].map(lambda v: f"{float(v):.2%}")
+            show["平均周收益"] = show["平均周收益"].map(lambda v: f"{float(v):.2%}")
+            lines.extend(["", "## 分日汇总", "", self._markdown_table(show)])
+
+        detail = sheet.copy()
+        detail["候选股票"] = detail.apply(lambda row: f"{row['instrument']} {row['name']}".strip(), axis=1)
+        detail["周度收益率"] = detail["weekly_return"].map(lambda v: "缺失" if pd.isna(v) else f"{float(v):.2%}")
+        table = detail[
+            [
+                "signal_date",
+                "候选股票",
+                "avg_score",
+                "signal_close",
+                "week_end_close",
+                "周度收益率",
+                "week_result",
+                "recommendation_hit",
+                "score_direction_match",
+            ]
+        ].copy()
+        table.columns = ["信号日期", "候选股票", "平均分", "信号收盘价", "周末收盘价", "周度收益率", "周度结果", "推荐命中", "方向一致"]
+        lines.extend(["", "## 明细", "", self._markdown_table(table)])
+        return "\n".join(lines) + "\n"
+
+    def weekly_recommendation_html(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 5,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> str:
+        max_price = self._resolved_max_price(max_price)
+        sheet = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        report_end = end_date or (str(sheet["week_end_date"].iloc[0]) if not sheet.empty else "unknown")
+        valid = sheet.dropna(subset=["weekly_return"]).copy() if not sheet.empty else pd.DataFrame()
+        hit_ratio = float((valid["recommendation_hit"] == "是").mean()) if not valid.empty else 0.0
+        direction_ratio = float((valid["score_direction_match"] == "是").mean()) if not valid.empty else 0.0
+        avg_return = float(valid["weekly_return"].mean()) if not valid.empty else 0.0
+
+        rows = []
+        for _, row in sheet.iterrows():
+            candidate = f"{row['instrument']} {row['name']}".strip()
+            weekly_return = "缺失" if pd.isna(row["weekly_return"]) else f"{float(row['weekly_return']):.2%}"
+            week_end_close = "缺失" if pd.isna(row["week_end_close"]) else f"{float(row['week_end_close']):.2f}"
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(str(row['signal_date']))}</td>"
+                f"<td>{html.escape(candidate)}</td>"
+                f"<td>{float(row['avg_score']):.4f}</td>"
+                f"<td>{float(row['signal_close']):.2f}</td>"
+                f"<td>{week_end_close}</td>"
+                f"<td>{weekly_return}</td>"
+                f"<td>{html.escape(str(row['week_result']))}</td>"
+                f"<td>{html.escape(str(row['recommendation_hit']))}</td>"
+                f"<td>{html.escape(str(row['score_direction_match']))}</td>"
+                "</tr>"
+            )
+        table_html = """
+<table>
+  <thead>
+    <tr>
+      <th>信号日期</th>
+      <th>候选股票</th>
+      <th>平均分</th>
+      <th>信号收盘价</th>
+      <th>周末收盘价</th>
+      <th>周度收益率</th>
+      <th>周度结果</th>
+      <th>推荐命中</th>
+      <th>方向一致</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+""".format(rows="".join(rows) or '<tr><td colspan="9">暂无数据</td></tr>')
+        return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{html.escape(f"最近{trading_days}个交易日推荐周报 - {report_end}")}</title>
+  <style>
+    body {{ font-family: "Avenir Next", "PingFang SC", sans-serif; background:#f6f1e8; color:#1f1a15; margin:0; }}
+    .page {{ max-width: 1200px; margin: 0 auto; padding: 28px 18px 48px; }}
+    .hero, .panel {{ background:#fffdf9; border:1px solid #d8cdbd; border-radius:24px; padding:24px; box-shadow:0 20px 40px rgba(75,47,28,0.08); }}
+    .hero h1 {{ margin:0 0 10px; font-size:36px; }}
+    .muted {{ color:#655d55; }}
+    .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-top:20px; }}
+    .card {{ background:#fff; border:1px solid #d8cdbd; border-radius:18px; padding:16px; }}
+    .card-label {{ color:#655d55; font-size:12px; text-transform:uppercase; }}
+    .card-value {{ margin-top:8px; font-size:24px; font-weight:700; }}
+    .panel {{ margin-top:22px; overflow:auto; }}
+    table {{ width:100%; border-collapse:collapse; min-width:900px; }}
+    th, td {{ padding:12px 14px; border-bottom:1px solid #e5dccf; text-align:left; }}
+    thead th {{ background:#f7ecdf; color:#655d55; font-size:12px; text-transform:uppercase; }}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>最近 {trading_days} 个交易日推荐周报</h1>
+      <p class="muted">用于核对最近几个交易日的推荐，在周末收盘价口径下到底有没有参考性。</p>
+      <div class="cards">
+        {self._summary_card("截至日期", report_end)}
+        {self._summary_card("股票池", self._zh_stock_pool(self.config.stock_pool))}
+        {self._summary_card("纳入信号", str(len(sheet)))}
+        {self._summary_card("推荐命中率", f"{hit_ratio:.2%}")}
+        {self._summary_card("方向一致率", f"{direction_ratio:.2%}")}
+        {self._summary_card("平均周收益", f"{avg_return:.2%}")}
+      </div>
+    </section>
+    <section class="panel">
+      {table_html}
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+    def save_weekly_recommendation_sheet(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 5,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> Path:
+        max_price = self._resolved_max_price(max_price)
+        sheet = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        output_dir = Path(self.config.analysis_folder).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_date = end_date or (str(sheet["week_end_date"].iloc[0]) if not sheet.empty else "unknown")
+        suffix = "filtered" if filtered else "raw"
+        output = output_dir / f"weekly_recommendations_{target_date}_{suffix}{self._price_suffix(max_price)}.csv"
+        self._weekly_recommendation_sheet_zh(sheet).to_csv(output, index=False, encoding="utf-8-sig")
+        return output
+
+    def save_weekly_recommendation_report(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 5,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> Path:
+        max_price = self._resolved_max_price(max_price)
+        report = self.weekly_recommendation_report(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        output_dir = Path(self.config.analysis_folder).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_date = end_date or "unknown"
+        suffix = "filtered" if filtered else "raw"
+        output = output_dir / f"weekly_recommendation_report_{target_date}_{suffix}{self._price_suffix(max_price)}.md"
+        output.write_text(report, encoding="utf-8")
+        return output
+
+    def save_weekly_recommendation_html(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 5,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> Path:
+        max_price = self._resolved_max_price(max_price)
+        report = self.weekly_recommendation_html(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        output_dir = Path(self.config.analysis_folder).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_date = end_date or "unknown"
+        suffix = "filtered" if filtered else "raw"
+        output = output_dir / f"weekly_recommendation_report_{target_date}_{suffix}{self._price_suffix(max_price)}.html"
+        output.write_text(report, encoding="utf-8")
+        return output
+
     def recommendation_report(
         self,
         limit: int = 10,
@@ -1540,15 +1878,25 @@ class ModelCLI:
 
     def _load_sync_price_frame(self, instrument: str) -> pd.DataFrame:
         if instrument not in self._sync_price_cache:
-            sync_file = Path(self.config.sync_dir).expanduser() / "akshare_daily" / f"{instrument}.csv"
-            if not sync_file.exists():
-                self._sync_price_cache[instrument] = pd.DataFrame()
-            else:
+            sync_dir = Path(self.config.sync_dir).expanduser()
+            candidates = [
+                sync_dir / "gold" / "market" / "validated_daily" / f"{instrument}.csv",
+                sync_dir / "raw" / "market" / "akshare" / f"{instrument}.csv",
+                sync_dir / "raw" / "market" / "tencent" / f"{instrument}.csv",
+                sync_dir / "raw" / "market" / "sina" / f"{instrument}.csv",
+                sync_dir / "akshare_daily" / f"{instrument}.csv",
+            ]
+            frame = pd.DataFrame()
+            for sync_file in candidates:
+                if not sync_file.exists():
+                    continue
                 try:
                     frame = pd.read_csv(sync_file)
                 except Exception:
                     frame = pd.DataFrame()
-                self._sync_price_cache[instrument] = frame
+                if not frame.empty:
+                    break
+            self._sync_price_cache[instrument] = frame
         return self._sync_price_cache[instrument]
 
     def _lookup_instrument_name(self, instrument: str) -> str:
@@ -2179,6 +2527,61 @@ class ModelCLI:
             if label not in display.columns:
                 display[label] = pd.Series(dtype=object)
         return display[[label for _, label in columns]]
+
+    def _weekly_recommendation_sheet_zh(self, sheet: pd.DataFrame) -> pd.DataFrame:
+        columns = [
+            ("signal_date", "信号日期"),
+            ("week_end_date", "周末日期"),
+            ("score_rank", "排名"),
+            ("instrument", "股票代码"),
+            ("name", "股票名称"),
+            ("avg_score", "平均分"),
+            ("signal_close", "信号收盘价"),
+            ("week_end_close", "周末收盘价"),
+            ("weekly_return", "周度收益率"),
+            ("week_result", "周度结果"),
+            ("recommendation_hit", "推荐命中"),
+            ("score_direction_match", "方向一致"),
+        ]
+        display = pd.DataFrame(columns=[label for _, label in columns]) if sheet.empty else sheet.copy()
+        if not display.empty:
+            display["weekly_return"] = display["weekly_return"].map(
+                lambda v: np.nan if pd.isna(v) else round(float(v), 6)
+            )
+        rename_map = {src: dst for src, dst in columns}
+        available = [src for src, _ in columns if src in display.columns]
+        display = display.loc[:, available].rename(columns=rename_map)
+        for _, label in columns:
+            if label not in display.columns:
+                display[label] = pd.Series(dtype=object)
+        return display[[label for _, label in columns]]
+
+    def _recent_recommendation_files(
+        self,
+        *,
+        end_date: str | None,
+        filtered: bool,
+        max_price: float | None,
+        trading_days: int,
+    ) -> list[tuple[str, Path]]:
+        analysis_dir = Path(self.config.analysis_folder).expanduser()
+        suffix = "filtered" if filtered else "raw"
+        price_suffix = self._price_suffix(max_price)
+        pattern = re.compile(
+            rf"^recommendations_(\d{{4}}-\d{{2}}-\d{{2}})_{suffix}{re.escape(price_suffix)}\.csv$"
+        )
+        candidates: list[tuple[str, Path]] = []
+        cutoff = pd.Timestamp(end_date).strftime("%Y-%m-%d") if end_date else None
+        for path in analysis_dir.glob(f"recommendations_*_{suffix}{price_suffix}.csv"):
+            match = pattern.match(path.name)
+            if not match:
+                continue
+            signal_date = match.group(1)
+            if cutoff and signal_date > cutoff:
+                continue
+            candidates.append((signal_date, path))
+        candidates.sort(key=lambda item: item[0])
+        return candidates[-trading_days:]
 
     @staticmethod
     def _apply_price_filter(plan: pd.DataFrame, max_price: float | None) -> pd.DataFrame:

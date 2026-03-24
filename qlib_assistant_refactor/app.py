@@ -102,12 +102,33 @@ class RollingTrader:
             filtered=True,
             max_price=self.config.max_price,
         )
+        weekly_csv_path = self.model.save_weekly_recommendation_sheet(
+            end_date=latest_date,
+            trading_days=5,
+            filtered=True,
+            max_price=self.config.max_price,
+        )
+        weekly_markdown_path = self.model.save_weekly_recommendation_report(
+            end_date=latest_date,
+            trading_days=5,
+            filtered=True,
+            max_price=self.config.max_price,
+        )
+        weekly_html_path = self.model.save_weekly_recommendation_html(
+            end_date=latest_date,
+            trading_days=5,
+            filtered=True,
+            max_price=self.config.max_price,
+        )
         latest_paths = self._write_latest_artifacts(
             csv_path=csv_path,
             markdown_path=markdown_path,
             html_path=html_path,
             spotlight_markdown_path=spotlight_md_path,
             spotlight_html_path=spotlight_html_path,
+            weekly_csv_path=weekly_csv_path,
+            weekly_markdown_path=weekly_markdown_path,
+            weekly_html_path=weekly_html_path,
         )
         return {
             "refresh_info": refresh_info,
@@ -124,6 +145,9 @@ class RollingTrader:
             "recommendation_report_html": str(html_path),
             "recommendation_spotlight_md": str(spotlight_md_path),
             "recommendation_spotlight_html": str(spotlight_html_path),
+            "weekly_recommendations_csv": str(weekly_csv_path),
+            "weekly_recommendation_report_md": str(weekly_markdown_path),
+            "weekly_recommendation_report_html": str(weekly_html_path),
             **latest_paths,
         }
 
@@ -134,6 +158,9 @@ class RollingTrader:
         html_path: Path,
         spotlight_markdown_path: Path,
         spotlight_html_path: Path,
+        weekly_csv_path: Path,
+        weekly_markdown_path: Path,
+        weekly_html_path: Path,
     ) -> dict[str, str]:
         analysis_dir = Path(self.config.analysis_folder).expanduser()
         analysis_dir.mkdir(parents=True, exist_ok=True)
@@ -142,17 +169,26 @@ class RollingTrader:
         latest_html = analysis_dir / "latest_recommendation_report.html"
         latest_spotlight_md = analysis_dir / "latest_recommendation_spotlight.md"
         latest_spotlight_html = analysis_dir / "latest_recommendation_spotlight.html"
+        latest_weekly_csv = analysis_dir / "latest_weekly_recommendations.csv"
+        latest_weekly_md = analysis_dir / "latest_weekly_recommendation_report.md"
+        latest_weekly_html = analysis_dir / "latest_weekly_recommendation_report.html"
         shutil.copy2(csv_path, latest_csv)
         shutil.copy2(markdown_path, latest_md)
         shutil.copy2(html_path, latest_html)
         shutil.copy2(spotlight_markdown_path, latest_spotlight_md)
         shutil.copy2(spotlight_html_path, latest_spotlight_html)
+        shutil.copy2(weekly_csv_path, latest_weekly_csv)
+        shutil.copy2(weekly_markdown_path, latest_weekly_md)
+        shutil.copy2(weekly_html_path, latest_weekly_html)
         return {
             "latest_recommendations_csv": str(latest_csv),
             "latest_recommendation_report_md": str(latest_md),
             "latest_recommendation_report_html": str(latest_html),
             "latest_recommendation_spotlight_md": str(latest_spotlight_md),
             "latest_recommendation_spotlight_html": str(latest_spotlight_html),
+            "latest_weekly_recommendations_csv": str(latest_weekly_csv),
+            "latest_weekly_recommendation_report_md": str(latest_weekly_md),
+            "latest_weekly_recommendation_report_html": str(latest_weekly_html),
         }
 
     @property

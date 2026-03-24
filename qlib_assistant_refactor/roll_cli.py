@@ -180,6 +180,38 @@ def build_parser() -> argparse.ArgumentParser:
     save_spotlight_html_parser.add_argument("--selection-dir", default=None, help="Selection directory; defaults to latest.")
     save_spotlight_html_parser.add_argument("--raw", action="store_true", help="Use *_ret.csv instead of *_filter_ret.csv.")
     save_spotlight_html_parser.add_argument("--max-price", type=float, default=None, help="Only keep stocks with close price <= this value.")
+    weekly_report_parser = model_subparsers.add_parser(
+        "weekly-report",
+        help="Render a weekly Markdown report comparing recent recommendation results.",
+    )
+    weekly_report_parser.add_argument("--end-date", default=None, help="Week end date in YYYY-MM-DD format.")
+    weekly_report_parser.add_argument("--trading-days", type=int, default=5, help="How many recent trading days to include.")
+    weekly_report_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    weekly_report_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    save_weekly_report_parser = model_subparsers.add_parser(
+        "save-weekly-report",
+        help="Save a weekly Markdown report comparing recent recommendation results.",
+    )
+    save_weekly_report_parser.add_argument("--end-date", default=None, help="Week end date in YYYY-MM-DD format.")
+    save_weekly_report_parser.add_argument("--trading-days", type=int, default=5, help="How many recent trading days to include.")
+    save_weekly_report_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    save_weekly_report_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    save_weekly_sheet_parser = model_subparsers.add_parser(
+        "save-weekly-sheet",
+        help="Save a weekly CSV sheet comparing recent recommendation results.",
+    )
+    save_weekly_sheet_parser.add_argument("--end-date", default=None, help="Week end date in YYYY-MM-DD format.")
+    save_weekly_sheet_parser.add_argument("--trading-days", type=int, default=5, help="How many recent trading days to include.")
+    save_weekly_sheet_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    save_weekly_sheet_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    save_weekly_html_parser = model_subparsers.add_parser(
+        "save-weekly-html",
+        help="Save a weekly HTML report comparing recent recommendation results.",
+    )
+    save_weekly_html_parser.add_argument("--end-date", default=None, help="Week end date in YYYY-MM-DD format.")
+    save_weekly_html_parser.add_argument("--trading-days", type=int, default=5, help="How many recent trading days to include.")
+    save_weekly_html_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    save_weekly_html_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
     save_top_parser = model_subparsers.add_parser("save-top", help="Save top predictions to CSV.")
     save_top_parser.add_argument("--limit", type=int, default=20, help="Top N rows to save.")
     save_top_parser.add_argument("--date", default=None, help="Prediction date in YYYY-MM-DD format.")
@@ -288,11 +320,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recommendation_report_html={info['recommendation_report_html']}")
         print(f"recommendation_spotlight_md={info['recommendation_spotlight_md']}")
         print(f"recommendation_spotlight_html={info['recommendation_spotlight_html']}")
+        print(f"weekly_recommendations_csv={info['weekly_recommendations_csv']}")
+        print(f"weekly_recommendation_report_md={info['weekly_recommendation_report_md']}")
+        print(f"weekly_recommendation_report_html={info['weekly_recommendation_report_html']}")
         print(f"latest_recommendations_csv={info['latest_recommendations_csv']}")
         print(f"latest_recommendation_report_md={info['latest_recommendation_report_md']}")
         print(f"latest_recommendation_report_html={info['latest_recommendation_report_html']}")
         print(f"latest_recommendation_spotlight_md={info['latest_recommendation_spotlight_md']}")
         print(f"latest_recommendation_spotlight_html={info['latest_recommendation_spotlight_html']}")
+        print(f"latest_weekly_recommendations_csv={info['latest_weekly_recommendations_csv']}")
+        print(f"latest_weekly_recommendation_report_md={info['latest_weekly_recommendation_report_md']}")
+        print(f"latest_weekly_recommendation_report_html={info['latest_weekly_recommendation_report_html']}")
         return 0
 
     if args.command == "clawteam-runner":
@@ -469,6 +507,42 @@ def main(argv: list[str] | None = None) -> int:
                 limit=args.limit,
                 date=args.date,
                 selection_dir=args.selection_dir,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "weekly-report":
+            report = app.model.weekly_recommendation_report(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report, end="")
+            return 0
+        if args.model_command == "save-weekly-report":
+            output = app.model.save_weekly_recommendation_report(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "save-weekly-sheet":
+            output = app.model.save_weekly_recommendation_sheet(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "save-weekly-html":
+            output = app.model.save_weekly_recommendation_html(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
                 filtered=not args.raw,
                 max_price=args.max_price,
             )

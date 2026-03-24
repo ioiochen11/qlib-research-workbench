@@ -389,31 +389,97 @@ class ModelCLITests(TestCase):
             self.assertEqual(content.iloc[0]["信号说明"], "模型平均分 0.0300；价格仍在 10 日线之上，偏向回踩型机会")
 
     def test_recommendation_sheet_uses_config_max_price_by_default(self) -> None:
-        cli = ModelCLI(AppConfig(max_price=30.0))
-        cli._load_entry_candidates = Mock(
-            return_value=pd.DataFrame(
-                {
-                    "datetime": pd.to_datetime(["2026-03-19", "2026-03-19"]),
-                    "instrument": ["SH600000", "SH600009"],
-                    "avg_score": [0.05, 0.04],
-                }
+        with TemporaryDirectory() as tmpdir:
+            cli = ModelCLI(AppConfig(sync_dir=tmpdir, max_price=30.0))
+            cli._load_entry_candidates = Mock(
+                return_value=pd.DataFrame(
+                    {
+                        "datetime": pd.to_datetime(["2026-03-19", "2026-03-19"]),
+                        "instrument": ["SH600000", "SH600009"],
+                        "avg_score": [0.05, 0.04],
+                    }
+                )
             )
-        )
-        cli._get_entry_price_history = Mock(
-            return_value=pd.DataFrame(
-                {
-                    "datetime": list(pd.date_range("2026-03-06", periods=10, freq="B")) * 2,
-                    "instrument": ["SH600000"] * 10 + ["SH600009"] * 10,
-                    "close": [10.0] * 10 + [35.0] * 10,
-                    "open": [9.9] * 10 + [34.8] * 10,
-                    "high": [10.1] * 10 + [35.3] * 10,
-                    "low": [9.8] * 10 + [34.5] * 10,
-                }
+            cli._get_entry_price_history = Mock(
+                return_value=pd.DataFrame(
+                    {
+                        "datetime": list(pd.date_range("2026-03-06", periods=10, freq="B")) * 2,
+                        "instrument": ["SH600000"] * 10 + ["SH600009"] * 10,
+                        "close": [10.0] * 10 + [35.0] * 10,
+                        "open": [9.9] * 10 + [34.8] * 10,
+                        "high": [10.1] * 10 + [35.3] * 10,
+                        "low": [9.8] * 10 + [34.5] * 10,
+                    }
+                )
             )
-        )
 
-        df = cli.recommendation_sheet(limit=5, date="2026-03-19")
-        self.assertEqual(df["instrument"].tolist(), ["SH600000"])
+            df = cli.recommendation_sheet(limit=5, date="2026-03-19")
+            self.assertEqual(df["instrument"].tolist(), ["SH600000"])
+
+    def test_weekly_recommendation_sheet_builds_recent_comparison_rows(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            analysis_dir = Path(tmpdir) / "analysis"
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {"信号日期": "2026-03-19", "排名": 1, "股票代码": "SH600000", "股票名称": "浦发银行", "平均分": 0.03, "收盘价": 10.0},
+                    {"信号日期": "2026-03-20", "排名": 1, "股票代码": "SH600028", "股票名称": "中国石化", "平均分": 0.02, "收盘价": 6.0},
+                ]
+            ).to_csv(analysis_dir / "recommendations_2026-03-20_filtered_maxprice30.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(
+                [
+                    {"信号日期": "2026-03-23", "排名": 1, "股票代码": "SH601012", "股票名称": "隆基绿能", "平均分": -0.01, "收盘价": 18.8},
+                ]
+            ).to_csv(analysis_dir / "recommendations_2026-03-23_filtered_maxprice30.csv", index=False, encoding="utf-8-sig")
+
+            cli = ModelCLI(AppConfig(analysis_folder=str(analysis_dir), max_price=30.0))
+            cli._lookup_raw_daily_bar = Mock(
+                side_effect=lambda instrument, date_str: {
+                    ("SH600000", "2026-03-23"): {"close": 10.5},
+                    ("SH600028", "2026-03-23"): {"close": 5.8},
+                    ("SH601012", "2026-03-23"): {"close": 18.8},
+                }.get((instrument, date_str))
+            )
+
+            sheet = cli.weekly_recommendation_sheet(end_date="2026-03-23", trading_days=5)
+
+            self.assertEqual(len(sheet), 3)
+            self.assertEqual(sheet.iloc[0]["instrument"], "SH600000")
+            self.assertEqual(sheet.iloc[0]["recommendation_hit"], "是")
+            self.assertEqual(sheet.iloc[1]["recommendation_hit"], "否")
+            self.assertEqual(sheet.iloc[2]["week_result"], "本周最后一个交易日信号")
+
+    def test_weekly_recommendation_sheet_reads_validated_daily_prices(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            analysis_dir = Path(tmpdir) / "analysis"
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            sync_dir = Path(tmpdir) / "sync"
+            price_dir = sync_dir / "gold" / "market" / "validated_daily"
+            price_dir.mkdir(parents=True, exist_ok=True)
+
+            pd.DataFrame(
+                [
+                    {"信号日期": "2026-03-20", "排名": 1, "股票代码": "SH601012", "股票名称": "隆基绿能", "平均分": 0.02, "收盘价": 18.99},
+                ]
+            ).to_csv(analysis_dir / "recommendations_2026-03-20_filtered_maxprice30.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(
+                [
+                    {"信号日期": "2026-03-23", "排名": 1, "股票代码": "SH601012", "股票名称": "隆基绿能", "平均分": -0.01, "收盘价": 18.81},
+                ]
+            ).to_csv(analysis_dir / "recommendations_2026-03-23_filtered_maxprice30.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(
+                [
+                    {"date": "2026-03-20", "symbol": "SH601012", "name": "隆基绿能", "open": 18.50, "close": 18.99, "high": 19.60, "low": 18.42, "volume": 1, "factor": 1.0},
+                    {"date": "2026-03-23", "symbol": "SH601012", "name": "隆基绿能", "open": 19.05, "close": 18.81, "high": 19.40, "low": 18.69, "volume": 1, "factor": 1.0},
+                ]
+            ).to_csv(price_dir / "SH601012.csv", index=False)
+
+            cli = ModelCLI(AppConfig(analysis_folder=str(analysis_dir), sync_dir=str(sync_dir), max_price=30.0))
+            sheet = cli.weekly_recommendation_sheet(end_date="2026-03-23", trading_days=5)
+
+            prior_signal = sheet[sheet["signal_date"].astype(str) == "2026-03-20"].iloc[0]
+            self.assertAlmostEqual(float(prior_signal["week_end_close"]), 18.81, places=2)
+            self.assertAlmostEqual(float(prior_signal["weekly_return"]), (18.81 / 18.99) - 1.0, places=6)
 
     def test_recommendation_html_contains_table_and_title(self) -> None:
         cli = ModelCLI(AppConfig())
