@@ -43,6 +43,9 @@ score_bucket_min_evaluable_count: 2
 score_bucket_min_hit_rate: 0.5
 score_bucket_min_avg_weekly_return: 0.0
 score_bucket_fallback_to_unfiltered: false
+confidence_filter_enabled: true
+confidence_min_level: "高"
+confidence_filter_fallback_to_unfiltered: false
 source_priority:
   market:
     - akshare

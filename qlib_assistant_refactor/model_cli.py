@@ -195,6 +195,8 @@ class ModelCLI:
             "instrument",
             "name",
             "avg_score",
+            "pos_ratio",
+            "model_count",
             "close",
             "ma5",
             "ma10",
@@ -273,6 +275,8 @@ class ModelCLI:
             filtered=filtered,
             max_price=max_price,
         )
+        plan = self._attach_confidence_context(plan)
+        plan = self._apply_confidence_filter(plan, filtered=filtered)
         columns = [
             "datetime",
             "validation_date",
@@ -280,6 +284,8 @@ class ModelCLI:
             "instrument",
             "name",
             "avg_score",
+            "pos_ratio",
+            "model_count",
             "score_bucket",
             "bucket_hit_rate",
             "bucket_direction_rate",
@@ -287,6 +293,9 @@ class ModelCLI:
             "bucket_evaluable_count",
             "bucket_reliable",
             "bucket_note",
+            "confidence_score",
+            "confidence_level",
+            "confidence_note",
             "close",
             "buy_low",
             "buy_high",
@@ -1120,6 +1129,7 @@ class ModelCLI:
         lines.extend(["", "## 数据可信度摘要", ""])
         lines.extend(self._credibility_lines(str(target_date)))
         lines.extend(self._score_bucket_filter_lines(str(target_date), filtered=filtered, max_price=max_price))
+        lines.extend(self._confidence_filter_lines(filtered=filtered))
         if sheet.empty:
             lines.extend(["", "没有符合条件的推荐结果。"])
             return "\n".join(lines) + "\n"
@@ -1142,6 +1152,11 @@ class ModelCLI:
                     f"- 平均平均分：`{float(sheet['avg_score'].mean()):.4f}`",
                 ]
             )
+        if "confidence_level" in sheet.columns:
+            confidence_counts = sheet["confidence_level"].fillna("未知").value_counts().sort_index()
+            lines.extend(["", "## 置信度摘要", ""])
+            for level, count in confidence_counts.items():
+                lines.append(f"- `{level}`：{int(count)}")
 
         display = sheet.copy()
         display["候选股票"] = display.apply(
@@ -1155,6 +1170,8 @@ class ModelCLI:
                 "score_rank",
                 "候选股票",
                 "avg_score",
+                "confidence_level",
+                "confidence_score",
                 "score_bucket",
                 "bucket_reliable",
                 "close",
@@ -1169,6 +1186,8 @@ class ModelCLI:
             "排名",
             "候选股票",
             "平均分",
+            "置信度",
+            "置信得分",
             "分数分桶",
             "历史可靠性",
             "收盘价",
@@ -1200,6 +1219,8 @@ class ModelCLI:
                 "",
                 f"- 股票：`{candidate_label}`",
                 f"- 平均分：`{float(first['avg_score']):.4f}`",
+                f"- 置信度：`{str(first.get('confidence_level', '未知'))}`",
+                f"- 置信说明：`{str(first.get('confidence_note', '暂无置信度说明'))}`",
                 f"- 分数分桶：`{str(first.get('score_bucket', '未知'))}`",
                 f"- 历史可靠性：`{str(first.get('bucket_reliable', '未知'))}`",
                 f"- 分桶说明：`{str(first.get('bucket_note', '历史样本不足，暂无法判断该分数档是否可靠'))}`",
@@ -1264,6 +1285,7 @@ class ModelCLI:
         title = f"推荐验证日报 - {target_date}"
         credibility_items = self._credibility_lines(str(target_date))
         bucket_filter_items = self._score_bucket_filter_lines(str(target_date), filtered=filtered, max_price=max_price)
+        confidence_filter_items = self._confidence_filter_lines(filtered=filtered)
         status_counts = (
             sheet["validation_status"].fillna("unknown").value_counts().sort_index()
             if not sheet.empty
@@ -1278,6 +1300,8 @@ class ModelCLI:
 <div class="candidate-grid">
   <div class="candidate-item"><span>候选股票</span><strong>{candidate}</strong></div>
   <div class="candidate-item"><span>平均分</span><strong>{avg_score}</strong></div>
+  <div class="candidate-item"><span>置信度</span><strong>{confidence_level}</strong></div>
+  <div class="candidate-item"><span>置信得分</span><strong>{confidence_score}</strong></div>
   <div class="candidate-item"><span>分数分桶</span><strong>{score_bucket}</strong></div>
   <div class="candidate-item"><span>历史可靠性</span><strong>{bucket_reliable}</strong></div>
   <div class="candidate-item"><span>收盘价</span><strong>{close}</strong></div>
@@ -1293,6 +1317,8 @@ class ModelCLI:
 """.format(
                 candidate=html.escape(candidate_label),
                 avg_score=f"{float(first['avg_score']):.4f}",
+                confidence_level=html.escape(str(first.get("confidence_level", "未知"))),
+                confidence_score=f"{float(first.get('confidence_score', 0.0)):.2f}",
                 score_bucket=html.escape(str(first.get("score_bucket", "未知"))),
                 bucket_reliable=html.escape(str(first.get("bucket_reliable", "未知"))),
                 close=f"{float(first['close']):.4f}",
@@ -1313,6 +1339,10 @@ class ModelCLI:
         ]
         if max_price is not None:
             summary_cards.append(self._summary_card("价格上限", f"{max_price:.2f} 元"))
+        if not sheet.empty and "confidence_level" in sheet.columns:
+            summary_cards.append(
+                self._summary_card("高置信度数量", str(int((sheet["confidence_level"] == "高").sum())))
+            )
         if not sheet.empty:
             summary_cards.extend(
                 [
@@ -1332,6 +1362,9 @@ class ModelCLI:
         )
         bucket_filter_html = "".join(
             f"<li>{html.escape(item.replace('- ', '', 1).replace('`', ''))}</li>" for item in bucket_filter_items
+        )
+        confidence_filter_html = "".join(
+            f"<li>{html.escape(item.replace('- ', '', 1).replace('`', ''))}</li>" for item in confidence_filter_items
         )
 
         table_html = self._recommendation_table_html(sheet)
@@ -1538,6 +1571,14 @@ class ModelCLI:
       </div>
     </section>
     <section>
+      <h2>置信度过滤</h2>
+      <div class="card">
+        <ul class="credibility-list">
+          {confidence_filter_html}
+        </ul>
+      </div>
+    </section>
+    <section>
       <h2>验证摘要</h2>
       <div class="status-cards">
         {status_html}
@@ -1635,6 +1676,7 @@ class ModelCLI:
                     "",
                     f"- 行业：`{self._lookup_instrument_industry(str(row['instrument']))}`",
                     f"- 平均分：`{float(row['avg_score']):.4f}`",
+                    f"- 置信度：`{str(row.get('confidence_level', '未知'))}`",
                     f"- 收盘价：`{float(row['close']):.4f}`",
                     f"- 买入区间：`{float(row['buy_low']):.4f} - {float(row['buy_high']):.4f}`",
                     f"- 突破确认价：`{float(row['breakout_price']):.4f}`",
@@ -1642,6 +1684,7 @@ class ModelCLI:
                     f"- 止盈位：`{float(row['take_profit_1']):.4f} / {float(row['take_profit_2']):.4f}`",
                     f"- 操作计划：`{self._zh_action_plan(str(row['action_plan']))}`",
                     f"- 信号解读：`{self._zh_signal_reason(str(row['signal_reason']))}`",
+                    f"- 置信说明：`{str(row.get('confidence_note', '暂无置信度说明'))}`",
                     f"- 当前验证状态：`{self._zh_validation_status(str(row['validation_status']))}`",
                     f"- 验证说明：`{self._zh_validation_note(str(row['validation_note']))}`",
                     f"- 财报摘要：`{str(row.get('fundamental_summary', '暂无有效财报摘要'))}`",
@@ -1706,6 +1749,7 @@ class ModelCLI:
   <p class="spot-subtitle">{industry}</p>
   <div class="spot-grid">
     <div><span>平均分</span><strong>{avg_score}</strong></div>
+    <div><span>置信度</span><strong>{confidence_level}</strong></div>
     <div><span>收盘价</span><strong>{close}</strong></div>
     <div><span>买入区间</span><strong>{buy_zone}</strong></div>
     <div><span>突破确认价</span><strong>{breakout}</strong></div>
@@ -1715,6 +1759,7 @@ class ModelCLI:
   <ul class="spot-list">
     <li><strong>操作计划：</strong>{action_plan}</li>
     <li><strong>信号解读：</strong>{signal_reason}</li>
+    <li><strong>置信说明：</strong>{confidence_note}</li>
     <li><strong>验证状态：</strong>{validation_status}</li>
     <li><strong>验证说明：</strong>{validation_note}</li>
     <li><strong>财报摘要：</strong>{fundamental_summary}</li>
@@ -1728,6 +1773,7 @@ class ModelCLI:
                     candidate=html.escape(candidate_label),
                     industry=html.escape(self._lookup_instrument_industry(str(row["instrument"]))),
                     avg_score=f"{float(row['avg_score']):.4f}",
+                    confidence_level=html.escape(str(row.get("confidence_level", "未知"))),
                     close=f"{float(row['close']):.4f}",
                     buy_zone=html.escape(f"{float(row['buy_low']):.4f} - {float(row['buy_high']):.4f}"),
                     breakout=f"{float(row['breakout_price']):.4f}",
@@ -1735,6 +1781,7 @@ class ModelCLI:
                     take_profit=html.escape(f"{float(row['take_profit_1']):.4f} / {float(row['take_profit_2']):.4f}"),
                     action_plan=html.escape(self._zh_action_plan(str(row["action_plan"]))),
                     signal_reason=html.escape(self._zh_signal_reason(str(row["signal_reason"]))),
+                    confidence_note=html.escape(str(row.get("confidence_note", "暂无置信度说明"))),
                     validation_status=html.escape(self._zh_validation_status(str(row["validation_status"]))),
                     validation_note=html.escape(self._zh_validation_note(str(row["validation_note"]))),
                     fundamental_summary=html.escape(str(row.get("fundamental_summary", "暂无有效财报摘要"))),
@@ -2125,7 +2172,7 @@ class ModelCLI:
                 file_path = base_dir / f"{target_date}_{suffix}.csv"
                 if file_path.exists():
                     df = pd.read_csv(file_path, parse_dates=["datetime"])
-                    keep = [col for col in ["datetime", "instrument", "avg_score"] if col in df.columns]
+                    keep = [col for col in ["datetime", "instrument", "avg_score", "pos_ratio", "model_count"] if col in df.columns]
                     result = df.loc[:, keep].head(limit).reset_index(drop=True)
                     result["score_rank"] = range(1, len(result) + 1)
                     return result
@@ -2212,6 +2259,8 @@ class ModelCLI:
             "instrument": candidate["instrument"],
             "name": name,
             "avg_score": float(candidate["avg_score"]),
+            "pos_ratio": float(candidate.get("pos_ratio", np.nan)) if not pd.isna(candidate.get("pos_ratio", np.nan)) else np.nan,
+            "model_count": int(candidate.get("model_count", 0)) if not pd.isna(candidate.get("model_count", 0)) else 0,
             "close": round(close, 4),
             "ma5": round(ma5, 4),
             "ma10": round(ma10, 4),
@@ -2681,6 +2730,8 @@ class ModelCLI:
                 f"<td>{int(row['score_rank'])}</td>"
                 f"<td><strong>{html.escape(candidate_label)}</strong><div class=\"small\">{html.escape(action_plan)}</div></td>"
                 f"<td>{float(row['avg_score']):.4f}</td>"
+                f"<td>{html.escape(str(row.get('confidence_level', '未知')))}</td>"
+                f"<td>{float(row.get('confidence_score', 0.0)):.2f}</td>"
                 f"<td>{html.escape(str(row.get('score_bucket', '未知')))}</td>"
                 f"<td>{html.escape(str(row.get('bucket_reliable', '未知')))}</td>"
                 f"<td>{float(row['close']):.4f}</td>"
@@ -2700,6 +2751,8 @@ class ModelCLI:
       <th>排名</th>
       <th>候选股票</th>
       <th>平均分</th>
+      <th>置信度</th>
+      <th>置信得分</th>
       <th>分数分桶</th>
       <th>历史可靠性</th>
       <th>收盘价</th>
@@ -2886,6 +2939,77 @@ class ModelCLI:
             return merged
         return filtered_merged
 
+    def _attach_confidence_context(self, plan: pd.DataFrame) -> pd.DataFrame:
+        if plan.empty:
+            return plan
+        enriched = plan.copy()
+        enriched["confidence_score"] = enriched.apply(self._confidence_score, axis=1)
+        enriched["confidence_level"] = enriched["confidence_score"].map(self._confidence_level)
+        enriched["confidence_note"] = enriched.apply(self._confidence_note, axis=1)
+        return enriched
+
+    def _apply_confidence_filter(self, plan: pd.DataFrame, *, filtered: bool) -> pd.DataFrame:
+        if plan.empty or not filtered or not self.config.confidence_filter_enabled:
+            return plan
+        keep_levels = self._confidence_levels_at_or_above(self.config.confidence_min_level)
+        filtered_plan = plan[plan["confidence_level"].isin(keep_levels)].copy()
+        if not filtered_plan.empty:
+            return filtered_plan.reset_index(drop=True)
+        if self.config.confidence_filter_fallback_to_unfiltered:
+            return plan
+        return filtered_plan
+
+    @staticmethod
+    def _confidence_score(row: pd.Series) -> float:
+        score = 0.0
+        pos_ratio = row.get("pos_ratio")
+        model_count = row.get("model_count")
+        bucket_reliable = str(row.get("bucket_reliable", "未知"))
+        avg_score = row.get("avg_score")
+        if not pd.isna(pos_ratio):
+            score += min(max(float(pos_ratio), 0.0), 1.0) * 45.0
+        if not pd.isna(model_count):
+            score += min(float(model_count), 5.0) / 5.0 * 20.0
+        if bucket_reliable == "是":
+            score += 25.0
+        if not pd.isna(avg_score):
+            score += min(abs(float(avg_score)) / 0.02, 1.0) * 10.0
+        return round(min(score, 100.0), 2)
+
+    @staticmethod
+    def _confidence_level(score: float) -> str:
+        value = float(score)
+        if value >= 75:
+            return "高"
+        if value >= 50:
+            return "中"
+        return "低"
+
+    @staticmethod
+    def _confidence_levels_at_or_above(level: str) -> set[str]:
+        order = ["低", "中", "高"]
+        normalized = level if level in order else "高"
+        start = order.index(normalized)
+        return set(order[start:])
+
+    @staticmethod
+    def _confidence_note(row: pd.Series) -> str:
+        parts: list[str] = []
+        pos_ratio = row.get("pos_ratio")
+        model_count = row.get("model_count")
+        bucket_reliable = str(row.get("bucket_reliable", "未知"))
+        if not pd.isna(pos_ratio):
+            parts.append(f"正向模型占比 {float(pos_ratio):.0%}")
+        if not pd.isna(model_count):
+            parts.append(f"参与模型数 {int(model_count)}")
+        if bucket_reliable == "是":
+            parts.append("当前分数档历史统计更可靠")
+        elif bucket_reliable == "否":
+            parts.append("当前分数档历史统计偏弱")
+        else:
+            parts.append("历史统计仍不足")
+        return "；".join(parts)
+
     def _reliable_score_buckets(self, summary: pd.DataFrame) -> set[str]:
         if summary.empty:
             return set()
@@ -2949,6 +3073,22 @@ class ModelCLI:
             lines.append("- 当前没有任何分数分桶同时满足历史可靠性阈值，因此系统会宁可空仓也不强行推荐。")
         return lines
 
+    def _confidence_filter_lines(self, *, filtered: bool) -> list[str]:
+        lines = [
+            f"- 高置信度过滤：`{'开启' if (filtered and self.config.confidence_filter_enabled) else '关闭'}`",
+            f"- 最低置信度要求：`{self.config.confidence_min_level}`",
+        ]
+        if not filtered:
+            lines.append("- 当前是 raw 候选视图，置信度过滤不会生效。")
+            return lines
+        if self.config.confidence_filter_enabled:
+            lines.append("- 正式推荐只保留达到设定置信度阈值的候选。")
+            if not self.config.confidence_filter_fallback_to_unfiltered:
+                lines.append("- 如果没有股票达到置信度阈值，系统会宁可空仓也不强行推荐。")
+        else:
+            lines.append("- 当前不会因为置信度不足而拦截正式推荐。")
+        return lines
+
     def _recommendation_sheet_zh(self, sheet: pd.DataFrame) -> pd.DataFrame:
         columns = [
             ("datetime", "信号日期"),
@@ -2957,6 +3097,8 @@ class ModelCLI:
             ("instrument", "股票代码"),
             ("name", "股票名称"),
             ("avg_score", "平均分"),
+            ("pos_ratio", "正向模型占比"),
+            ("model_count", "参与模型数"),
             ("score_bucket", "分数分桶"),
             ("bucket_hit_rate", "分桶命中率"),
             ("bucket_direction_rate", "分桶方向一致率"),
@@ -2964,6 +3106,9 @@ class ModelCLI:
             ("bucket_evaluable_count", "分桶样本数"),
             ("bucket_reliable", "历史可靠性"),
             ("bucket_note", "分桶说明"),
+            ("confidence_score", "置信得分"),
+            ("confidence_level", "置信度"),
+            ("confidence_note", "置信说明"),
             ("close", "收盘价"),
             ("buy_low", "买入下沿"),
             ("buy_high", "买入上沿"),
@@ -2999,6 +3144,8 @@ class ModelCLI:
             for key in ["bucket_hit_rate", "bucket_direction_rate", "bucket_avg_weekly_return"]:
                 if key in display.columns:
                     display[key] = display[key].map(lambda v: np.nan if pd.isna(v) else f"{float(v):.2%}")
+            if "pos_ratio" in display.columns:
+                display["pos_ratio"] = display["pos_ratio"].map(lambda v: np.nan if pd.isna(v) else f"{float(v):.2%}")
             display["action_plan"] = display["action_plan"].map(self._zh_action_plan)
             display["signal_reason"] = display["signal_reason"].map(self._zh_signal_reason)
             display["validation_status"] = display["validation_status"].map(self._zh_validation_status)

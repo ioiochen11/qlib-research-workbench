@@ -273,6 +273,8 @@ class ModelCLITests(TestCase):
         self.assertIn("data_gate_status", df.columns)
         self.assertIn("bucket_reliable", df.columns)
         self.assertIn("bucket_note", df.columns)
+        self.assertIn("confidence_level", df.columns)
+        self.assertIn("confidence_note", df.columns)
 
     def test_entry_plan_filters_by_max_price(self) -> None:
         cli = ModelCLI(AppConfig())
@@ -314,6 +316,9 @@ class ModelCLITests(TestCase):
                     "instrument": ["SZ000333", "SH601318"],
                     "name": ["美的集团", "中国平安"],
                     "avg_score": [0.0417, 0.0364],
+                    "confidence_score": [82.0, 58.0],
+                    "confidence_level": ["高", "中"],
+                    "confidence_note": ["正向模型占比 100%；参与模型数 5；当前分数档历史统计更可靠", "正向模型占比 60%；参与模型数 3；当前分数档历史统计偏弱"],
                     "close": [76.0, 60.62],
                     "buy_low": [75.3977, 59.9102],
                     "buy_high": [76.1506, 60.7974],
@@ -339,6 +344,8 @@ class ModelCLITests(TestCase):
         self.assertIn("# 推荐验证日报（2026-03-19）", report)
         self.assertIn("## 数据可信度摘要", report)
         self.assertIn("历史分桶过滤", report)
+        self.assertIn("高置信度过滤", report)
+        self.assertIn("置信度摘要", report)
         self.assertIn("## 验证摘要", report)
         self.assertIn("美的集团", report)
         self.assertIn("触及买入区间", report)
@@ -389,8 +396,74 @@ class ModelCLITests(TestCase):
             content = pd.read_csv(output)
             self.assertIn("股票代码", content.columns)
             self.assertIn("操作计划", content.columns)
+            self.assertIn("置信度", content.columns)
             self.assertEqual(content.iloc[0]["验证状态"], "触及买入区间")
             self.assertEqual(content.iloc[0]["信号说明"], "模型平均分 0.0300；价格仍在 10 日线之上，偏向回踩型机会")
+
+    def test_attach_confidence_context_uses_model_agreement_and_bucket_reliability(self) -> None:
+        cli = ModelCLI(AppConfig())
+        plan = pd.DataFrame(
+            {
+                "avg_score": [0.03, 0.001],
+                "pos_ratio": [1.0, 0.4],
+                "model_count": [5, 1],
+                "bucket_reliable": ["是", "否"],
+            }
+        )
+
+        enriched = cli._attach_confidence_context(plan)
+
+        self.assertEqual(enriched.iloc[0]["confidence_level"], "高")
+        self.assertEqual(enriched.iloc[1]["confidence_level"], "低")
+        self.assertIn("正向模型占比", enriched.iloc[0]["confidence_note"])
+
+    def test_recommendation_sheet_applies_high_confidence_filter_when_enabled(self) -> None:
+        cli = ModelCLI(
+            AppConfig(
+                confidence_filter_enabled=True,
+                confidence_min_level="高",
+                confidence_filter_fallback_to_unfiltered=False,
+            )
+        )
+        cli.entry_plan = Mock(
+            return_value=pd.DataFrame(
+                {
+                    "datetime": ["2026-03-25", "2026-03-25"],
+                    "validation_date": [None, None],
+                    "score_rank": [1, 2],
+                    "instrument": ["SH601012", "SH600028"],
+                    "name": ["隆基绿能", "中国石化"],
+                    "avg_score": [0.03, 0.004],
+                    "pos_ratio": [1.0, 0.4],
+                    "model_count": [5, 1],
+                    "bucket_reliable": ["是", "否"],
+                    "close": [18.9, 5.9],
+                    "buy_low": [18.2, 5.8],
+                    "buy_high": [18.8, 5.9],
+                    "breakout_price": [19.6, 6.6],
+                    "stop_loss": [17.5, 5.7],
+                    "take_profit_1": [20.5, 6.2],
+                    "take_profit_2": [22.2, 6.4],
+                    "action_plan": ["prefer_pullback_entry", "wait_for_breakout_confirmation"],
+                    "signal_reason": ["score_0.0300; holding_above_ma10", "score_0.0040; below_short_ma_wait_breakout"],
+                    "entry_zone_hit": [False, False],
+                    "breakout_hit": [False, False],
+                    "stop_loss_hit_2d": [False, False],
+                    "take_profit_1_hit_2d": [False, False],
+                    "take_profit_2_hit_2d": [False, False],
+                    "validation_status": ["pending_future_data", "pending_future_data"],
+                    "validation_note": ["下一交易日数据暂不可用", "下一交易日数据暂不可用"],
+                    "price_source": ["AkShare 同步原始日线", "AkShare 同步原始日线"],
+                }
+            )
+        )
+        cli._attach_feed_context = Mock(side_effect=lambda plan, as_of_date: plan)
+        cli._attach_score_bucket_context = Mock(side_effect=lambda plan, as_of_date, filtered, max_price: plan)
+
+        df = cli.recommendation_sheet(limit=5, date="2026-03-25")
+
+        self.assertEqual(df["instrument"].tolist(), ["SH601012"])
+        self.assertEqual(df.iloc[0]["confidence_level"], "高")
 
     def test_recommendation_sheet_uses_config_max_price_by_default(self) -> None:
         with TemporaryDirectory() as tmpdir:
