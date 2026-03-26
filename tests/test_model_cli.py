@@ -271,6 +271,8 @@ class ModelCLITests(TestCase):
         self.assertIn("validation_note", df.columns)
         self.assertIn("fundamental_summary", df.columns)
         self.assertIn("data_gate_status", df.columns)
+        self.assertIn("bucket_reliable", df.columns)
+        self.assertIn("bucket_note", df.columns)
 
     def test_entry_plan_filters_by_max_price(self) -> None:
         cli = ModelCLI(AppConfig())
@@ -302,6 +304,7 @@ class ModelCLITests(TestCase):
 
     def test_recommendation_report_contains_summary_and_table(self) -> None:
         cli = ModelCLI(AppConfig())
+        cli._score_bucket_filter_lines = Mock(return_value=["- 历史分桶过滤：`关闭`"])
         cli.recommendation_sheet = Mock(
             return_value=pd.DataFrame(
                 {
@@ -335,6 +338,7 @@ class ModelCLITests(TestCase):
         report = cli.recommendation_report(limit=2, date="2026-03-19")
         self.assertIn("# 推荐验证日报（2026-03-19）", report)
         self.assertIn("## 数据可信度摘要", report)
+        self.assertIn("历史分桶过滤", report)
         self.assertIn("## 验证摘要", report)
         self.assertIn("美的集团", report)
         self.assertIn("触及买入区间", report)
@@ -416,6 +420,64 @@ class ModelCLITests(TestCase):
             df = cli.recommendation_sheet(limit=5, date="2026-03-19")
             self.assertEqual(df["instrument"].tolist(), ["SH600000"])
 
+    def test_recommendation_sheet_applies_reliable_bucket_filter(self) -> None:
+        cli = ModelCLI(
+            AppConfig(
+                score_bucket_filter_enabled=True,
+                score_bucket_fallback_to_unfiltered=False,
+                score_bucket_min_evaluable_count=2,
+                score_bucket_min_hit_rate=0.5,
+                score_bucket_min_avg_weekly_return=0.0,
+            )
+        )
+        cli.entry_plan = Mock(
+            return_value=pd.DataFrame(
+                {
+                    "datetime": ["2026-03-25", "2026-03-25"],
+                    "validation_date": [None, None],
+                    "score_rank": [1, 2],
+                    "instrument": ["SH601012", "SH600028"],
+                    "name": ["隆基绿能", "中国石化"],
+                    "avg_score": [-0.001, -0.01],
+                    "close": [18.9, 5.9],
+                    "buy_low": [18.2, 5.8],
+                    "buy_high": [18.8, 5.9],
+                    "breakout_price": [19.6, 6.6],
+                    "stop_loss": [17.5, 5.7],
+                    "take_profit_1": [20.5, 6.2],
+                    "take_profit_2": [22.2, 6.4],
+                    "action_plan": ["prefer_pullback_entry", "wait_for_breakout_confirmation"],
+                    "signal_reason": ["score_0.0010; holding_above_ma10", "score_-0.0100; below_short_ma_wait_breakout"],
+                    "entry_zone_hit": [False, False],
+                    "breakout_hit": [False, False],
+                    "stop_loss_hit_2d": [False, False],
+                    "take_profit_1_hit_2d": [False, False],
+                    "take_profit_2_hit_2d": [False, False],
+                    "validation_status": ["pending_future_data", "pending_future_data"],
+                    "validation_note": ["下一交易日数据暂不可用", "下一交易日数据暂不可用"],
+                    "price_source": ["AkShare 同步原始日线", "AkShare 同步原始日线"],
+                }
+            )
+        )
+        cli._attach_feed_context = Mock(side_effect=lambda plan, as_of_date: plan)
+        cli.score_bucket_sheet = Mock(
+            return_value=pd.DataFrame(
+                {
+                    "score_bucket": ["-0.0050 ~ 0.0000", "-0.0200 ~ -0.0050"],
+                    "signal_count": [2, 2],
+                    "evaluable_count": [2, 2],
+                    "hit_rate": [0.5, 0.0],
+                    "direction_rate": [0.5, 1.0],
+                    "avg_weekly_return": [0.01, -0.001],
+                    "median_weekly_return": [0.01, -0.001],
+                }
+            )
+        )
+
+        df = cli.recommendation_sheet(limit=5, date="2026-03-25")
+        self.assertEqual(df["instrument"].tolist(), ["SH601012"])
+        self.assertEqual(df.iloc[0]["bucket_reliable"], "是")
+
     def test_weekly_recommendation_sheet_builds_recent_comparison_rows(self) -> None:
         with TemporaryDirectory() as tmpdir:
             analysis_dir = Path(tmpdir) / "analysis"
@@ -480,6 +542,105 @@ class ModelCLITests(TestCase):
             prior_signal = sheet[sheet["signal_date"].astype(str) == "2026-03-20"].iloc[0]
             self.assertAlmostEqual(float(prior_signal["week_end_close"]), 18.81, places=2)
             self.assertAlmostEqual(float(prior_signal["weekly_return"]), (18.81 / 18.99) - 1.0, places=6)
+
+    def test_score_bucket_sheet_groups_recent_signals(self) -> None:
+        cli = ModelCLI(AppConfig())
+        cli.weekly_recommendation_sheet = Mock(
+            return_value=pd.DataFrame(
+                {
+                    "signal_date": ["2026-03-20", "2026-03-20", "2026-03-21", "2026-03-22"],
+                    "instrument": ["A", "B", "C", "D"],
+                    "avg_score": [0.021, 0.012, -0.003, -0.03],
+                    "weekly_return": [0.03, 0.01, -0.02, -0.01],
+                    "recommendation_hit": ["是", "是", "否", "否"],
+                    "score_direction_match": ["是", "是", "是", "是"],
+                }
+            )
+        )
+
+        summary = cli.score_bucket_sheet(end_date="2026-03-22", trading_days=20)
+
+        self.assertEqual(summary["signal_count"].sum(), 4)
+        positive_bucket = summary[summary["score_bucket"] == "0.0050 ~ 0.0200"].iloc[0]
+        self.assertEqual(int(positive_bucket["signal_count"]), 1)
+        self.assertAlmostEqual(float(positive_bucket["hit_rate"]), 1.0, places=6)
+        strong_positive = summary[summary["score_bucket"] == "大于等于 0.0200"].iloc[0]
+        self.assertAlmostEqual(float(strong_positive["avg_weekly_return"]), 0.03, places=6)
+
+    def test_score_threshold_comparison_sheet_compares_multiple_cutoffs(self) -> None:
+        cli = ModelCLI(AppConfig(score_bucket_min_evaluable_count=2, score_bucket_min_avg_weekly_return=0.0))
+        cli.score_bucket_sheet = Mock(
+            return_value=pd.DataFrame(
+                {
+                    "score_bucket": ["-0.0050 ~ 0.0000", "-0.0200 ~ -0.0050"],
+                    "signal_count": [2, 2],
+                    "evaluable_count": [2, 2],
+                    "hit_rate": [0.50, 0.60],
+                    "direction_rate": [0.50, 0.80],
+                    "avg_weekly_return": [0.01, -0.01],
+                    "median_weekly_return": [0.01, -0.01],
+                }
+            )
+        )
+        cli.weekly_recommendation_sheet = Mock(
+            return_value=pd.DataFrame(
+                {
+                    "avg_score": [-0.001, -0.010, -0.002],
+                    "weekly_return": [0.01, -0.01, 0.02],
+                    "recommendation_hit": ["是", "否", "是"],
+                    "score_direction_match": ["是", "是", "是"],
+                }
+            )
+        )
+
+        comparison = cli.score_threshold_comparison_sheet(end_date="2026-03-25", trading_days=20, thresholds=[0.50, 0.60])
+
+        self.assertEqual(len(comparison), 2)
+        self.assertEqual(comparison.iloc[0]["reliable_bucket_count"], 1)
+        self.assertEqual(comparison.iloc[0]["kept_signal_count"], 2)
+        self.assertEqual(comparison.iloc[1]["reliable_bucket_count"], 0)
+
+    def test_score_threshold_comparison_report_contains_final_and_candidate_views(self) -> None:
+        cli = ModelCLI(AppConfig())
+        cli.weekly_recommendation_sheet = Mock(
+            side_effect=[
+                pd.DataFrame({"weekly_return": [0.01, -0.01, 0.02]}),
+                pd.DataFrame({"weekly_return": [0.01]}),
+            ]
+        )
+        cli.score_threshold_comparison_sheet = Mock(
+            side_effect=[
+                pd.DataFrame(
+                    {
+                        "hit_rate_threshold": [0.50],
+                        "reliable_bucket_count": [1],
+                        "reliable_buckets": ["-0.0050 ~ 0.0000"],
+                        "kept_signal_count": [1],
+                        "kept_signal_ratio": [1.0],
+                        "kept_hit_rate": [1.0],
+                        "kept_avg_weekly_return": [0.02],
+                    }
+                ),
+                pd.DataFrame(
+                    {
+                        "hit_rate_threshold": [0.50],
+                        "reliable_bucket_count": [2],
+                        "reliable_buckets": ["-0.0050 ~ 0.0000、0.0000 ~ 0.0050"],
+                        "kept_signal_count": [3],
+                        "kept_signal_ratio": [1.0],
+                        "kept_hit_rate": [0.67],
+                        "kept_avg_weekly_return": [0.01],
+                    }
+                ),
+            ]
+        )
+
+        report = cli.score_threshold_comparison_report(end_date="2026-03-25", trading_days=60)
+
+        self.assertIn("最终推荐视角", report)
+        self.assertIn("候选样本视角", report)
+        self.assertIn("最终推荐样本数", report)
+        self.assertIn("候选样本数", report)
 
     def test_recommendation_html_contains_table_and_title(self) -> None:
         cli = ModelCLI(AppConfig())

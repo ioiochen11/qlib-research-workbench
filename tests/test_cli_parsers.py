@@ -124,6 +124,22 @@ class CLIParserTests(TestCase):
         self.assertEqual(args.end_date, "2026-03-21")
         self.assertEqual(args.trading_days, 5)
 
+    def test_roll_cli_accepts_model_score_buckets(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["model", "score-buckets", "--end-date", "2026-03-21", "--trading-days", "60"])
+        self.assertEqual(args.command, "model")
+        self.assertEqual(args.model_command, "score-buckets")
+        self.assertEqual(args.end_date, "2026-03-21")
+        self.assertEqual(args.trading_days, 60)
+
+    def test_roll_cli_accepts_model_score_thresholds(self) -> None:
+        parser = build_roll_parser()
+        args = parser.parse_args(["model", "score-thresholds", "--end-date", "2026-03-21", "--trading-days", "60"])
+        self.assertEqual(args.command, "model")
+        self.assertEqual(args.model_command, "score-thresholds")
+        self.assertEqual(args.end_date, "2026-03-21")
+        self.assertEqual(args.trading_days, 60)
+
     def test_roll_cli_accepts_train_plan_limit(self) -> None:
         parser = build_roll_parser()
         args = parser.parse_args(["train", "plan", "--limit", "3"])
@@ -217,6 +233,7 @@ class CLIParserTests(TestCase):
                 "train_info": {"task_count": 1},
                 "manifest_dir": "/tmp/manifests/2026-03-20",
                 "selection_dir": "/tmp/selection",
+                "raw_recommendations_csv": "/tmp/raw.csv",
                 "recommendations_csv": "/tmp/a.csv",
                 "recommendation_report_md": "/tmp/a.md",
                 "recommendation_report_html": "/tmp/a.html",
@@ -225,6 +242,7 @@ class CLIParserTests(TestCase):
                 "weekly_recommendations_csv": "/tmp/w.csv",
                 "weekly_recommendation_report_md": "/tmp/w.md",
                 "weekly_recommendation_report_html": "/tmp/w.html",
+                "latest_raw_recommendations_csv": "/tmp/latest-raw.csv",
                 "latest_recommendations_csv": "/tmp/latest.csv",
                 "latest_recommendation_report_md": "/tmp/latest.md",
                 "latest_recommendation_report_html": "/tmp/latest.html",
@@ -238,6 +256,7 @@ class CLIParserTests(TestCase):
                 result = roll_main(["daily-run"])
 
         self.assertEqual(result, 0)
+        self.assertIn("latest_raw_recommendations_csv=/tmp/latest-raw.csv", stdout.getvalue())
         self.assertIn("latest_recommendation_report_html=/tmp/latest.html", stdout.getvalue())
         self.assertIn("latest_recommendation_spotlight_html=/tmp/latest-spot.html", stdout.getvalue())
         self.assertIn("latest_weekly_recommendation_report_html=/tmp/latest-w.html", stdout.getvalue())

@@ -54,6 +54,12 @@ class AppConfig:
         }
     )
     strict_report_gate: bool = True
+    score_bucket_filter_enabled: bool = False
+    score_bucket_lookback_days: int = 60
+    score_bucket_min_evaluable_count: int = 2
+    score_bucket_min_hit_rate: float = 0.5
+    score_bucket_min_avg_weekly_return: float = 0.0
+    score_bucket_fallback_to_unfiltered: bool = False
     source_priority: Dict[str, List[str]] = field(
         default_factory=lambda: {
             "market": ["akshare", "eastmoney"],
@@ -118,6 +124,12 @@ class AppConfig:
             "required_feeds": data.get("required_feeds", defaults.required_feeds),
             "max_feed_age_hours": data.get("max_feed_age_hours", defaults.max_feed_age_hours),
             "strict_report_gate": data.get("strict_report_gate", defaults.strict_report_gate),
+            "score_bucket_filter_enabled": data.get("score_bucket_filter_enabled", defaults.score_bucket_filter_enabled),
+            "score_bucket_lookback_days": data.get("score_bucket_lookback_days", defaults.score_bucket_lookback_days),
+            "score_bucket_min_evaluable_count": data.get("score_bucket_min_evaluable_count", defaults.score_bucket_min_evaluable_count),
+            "score_bucket_min_hit_rate": data.get("score_bucket_min_hit_rate", defaults.score_bucket_min_hit_rate),
+            "score_bucket_min_avg_weekly_return": data.get("score_bucket_min_avg_weekly_return", defaults.score_bucket_min_avg_weekly_return),
+            "score_bucket_fallback_to_unfiltered": data.get("score_bucket_fallback_to_unfiltered", defaults.score_bucket_fallback_to_unfiltered),
             "source_priority": data.get("source_priority", defaults.source_priority),
             "min_universe_coverage": data.get("min_universe_coverage", defaults.min_universe_coverage),
             "price_conflict_tolerance": data.get("price_conflict_tolerance", defaults.price_conflict_tolerance),

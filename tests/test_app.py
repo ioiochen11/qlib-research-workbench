@@ -80,6 +80,7 @@ class RollingTraderTests(TestCase):
             selection_dir.mkdir(parents=True, exist_ok=True)
             trader.model.selection_report = Mock(return_value=selection_dir)
 
+            raw_csv_path = analysis_dir / "recommendations_2026-03-20_raw_maxprice30.csv"
             csv_path = analysis_dir / "recommendations_2026-03-20_filtered_maxprice30.csv"
             md_path = analysis_dir / "recommendation_report_2026-03-20_filtered_maxprice30.md"
             html_path = analysis_dir / "recommendation_report_2026-03-20_filtered_maxprice30.html"
@@ -88,6 +89,7 @@ class RollingTraderTests(TestCase):
             weekly_csv_path = analysis_dir / "weekly_recommendations_2026-03-20_filtered_maxprice30.csv"
             weekly_md_path = analysis_dir / "weekly_recommendation_report_2026-03-20_filtered_maxprice30.md"
             weekly_html_path = analysis_dir / "weekly_recommendation_report_2026-03-20_filtered_maxprice30.html"
+            raw_csv_path.write_text("股票代码\nSH600000\n", encoding="utf-8")
             csv_path.write_text("股票代码\nSH600000\n", encoding="utf-8")
             md_path.write_text("# 推荐验证日报\n", encoding="utf-8")
             html_path.write_text("<html>日报</html>", encoding="utf-8")
@@ -96,7 +98,7 @@ class RollingTraderTests(TestCase):
             weekly_csv_path.write_text("股票代码\nSH600000\n", encoding="utf-8")
             weekly_md_path.write_text("# 最近5个交易日推荐周报\n", encoding="utf-8")
             weekly_html_path.write_text("<html>周报</html>", encoding="utf-8")
-            trader.model.save_recommendation_sheet = Mock(return_value=csv_path)
+            trader.model.save_recommendation_sheet = Mock(side_effect=[raw_csv_path, csv_path])
             trader.model.save_recommendation_report = Mock(return_value=md_path)
             trader.model.save_recommendation_html = Mock(return_value=html_path)
             trader.model.save_recommendation_spotlight = Mock(return_value=spotlight_md_path)
@@ -108,6 +110,7 @@ class RollingTraderTests(TestCase):
             result = trader.daily_run()
 
             self.assertEqual(result["selection_dir"], str(selection_dir))
+            self.assertTrue((analysis_dir / "latest_raw_recommendations.csv").exists())
             self.assertTrue((analysis_dir / "latest_recommendations.csv").exists())
             self.assertTrue((analysis_dir / "latest_recommendation_report.md").exists())
             self.assertTrue((analysis_dir / "latest_recommendation_report.html").exists())
@@ -116,6 +119,7 @@ class RollingTraderTests(TestCase):
             self.assertTrue((analysis_dir / "latest_weekly_recommendations.csv").exists())
             self.assertTrue((analysis_dir / "latest_weekly_recommendation_report.md").exists())
             self.assertTrue((analysis_dir / "latest_weekly_recommendation_report.html").exists())
+            self.assertEqual(result["raw_recommendations_csv"], str(raw_csv_path))
 
     def test_daily_run_skips_latest_overwrite_when_freshness_gate_fails(self) -> None:
         with TemporaryDirectory() as tmpdir:

@@ -204,6 +204,46 @@ def build_parser() -> argparse.ArgumentParser:
     save_weekly_sheet_parser.add_argument("--trading-days", type=int, default=5, help="How many recent trading days to include.")
     save_weekly_sheet_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
     save_weekly_sheet_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    score_buckets_parser = model_subparsers.add_parser(
+        "score-buckets",
+        help="Render score bucket hit-rate analysis from recent verified recommendations.",
+    )
+    score_buckets_parser.add_argument("--end-date", default=None, help="Analysis end date in YYYY-MM-DD format.")
+    score_buckets_parser.add_argument("--trading-days", type=int, default=60, help="How many recent trading days to include.")
+    score_buckets_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    score_buckets_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    save_score_buckets_parser = model_subparsers.add_parser(
+        "save-score-buckets",
+        help="Save score bucket hit-rate analysis to CSV.",
+    )
+    save_score_buckets_parser.add_argument("--end-date", default=None, help="Analysis end date in YYYY-MM-DD format.")
+    save_score_buckets_parser.add_argument("--trading-days", type=int, default=60, help="How many recent trading days to include.")
+    save_score_buckets_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    save_score_buckets_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    save_score_bucket_report_parser = model_subparsers.add_parser(
+        "save-score-bucket-report",
+        help="Save score bucket hit-rate analysis to Markdown.",
+    )
+    save_score_bucket_report_parser.add_argument("--end-date", default=None, help="Analysis end date in YYYY-MM-DD format.")
+    save_score_bucket_report_parser.add_argument("--trading-days", type=int, default=60, help="How many recent trading days to include.")
+    save_score_bucket_report_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    save_score_bucket_report_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    score_thresholds_parser = model_subparsers.add_parser(
+        "score-thresholds",
+        help="Compare multiple hit-rate thresholds for reliable score-bucket filtering.",
+    )
+    score_thresholds_parser.add_argument("--end-date", default=None, help="Analysis end date in YYYY-MM-DD format.")
+    score_thresholds_parser.add_argument("--trading-days", type=int, default=60, help="How many recent trading days to include.")
+    score_thresholds_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    score_thresholds_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
+    save_score_thresholds_parser = model_subparsers.add_parser(
+        "save-score-thresholds",
+        help="Save a hit-rate threshold comparison report to Markdown.",
+    )
+    save_score_thresholds_parser.add_argument("--end-date", default=None, help="Analysis end date in YYYY-MM-DD format.")
+    save_score_thresholds_parser.add_argument("--trading-days", type=int, default=60, help="How many recent trading days to include.")
+    save_score_thresholds_parser.add_argument("--raw", action="store_true", help="Use raw recommendation files instead of filtered files.")
+    save_score_thresholds_parser.add_argument("--max-price", type=float, default=None, help="Only include stocks with close price <= this value.")
     save_weekly_html_parser = model_subparsers.add_parser(
         "save-weekly-html",
         help="Save a weekly HTML report comparing recent recommendation results.",
@@ -315,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         if info.get("selection_dir") is None:
             return 0
         print(f"selection_dir={info['selection_dir']}")
+        print(f"raw_recommendations_csv={info['raw_recommendations_csv']}")
         print(f"recommendations_csv={info['recommendations_csv']}")
         print(f"recommendation_report_md={info['recommendation_report_md']}")
         print(f"recommendation_report_html={info['recommendation_report_html']}")
@@ -323,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"weekly_recommendations_csv={info['weekly_recommendations_csv']}")
         print(f"weekly_recommendation_report_md={info['weekly_recommendation_report_md']}")
         print(f"weekly_recommendation_report_html={info['weekly_recommendation_report_html']}")
+        print(f"latest_raw_recommendations_csv={info['latest_raw_recommendations_csv']}")
         print(f"latest_recommendations_csv={info['latest_recommendations_csv']}")
         print(f"latest_recommendation_report_md={info['latest_recommendation_report_md']}")
         print(f"latest_recommendation_report_html={info['latest_recommendation_report_html']}")
@@ -532,6 +574,51 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.model_command == "save-weekly-sheet":
             output = app.model.save_weekly_recommendation_sheet(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "score-buckets":
+            report = app.model.score_bucket_report(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report, end="")
+            return 0
+        if args.model_command == "save-score-buckets":
+            output = app.model.save_score_bucket_sheet(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "save-score-bucket-report":
+            output = app.model.save_score_bucket_report(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(f"saved={output}")
+            return 0
+        if args.model_command == "score-thresholds":
+            report = app.model.score_threshold_comparison_report(
+                end_date=args.end_date,
+                trading_days=args.trading_days,
+                filtered=not args.raw,
+                max_price=args.max_price,
+            )
+            print(report, end="")
+            return 0
+        if args.model_command == "save-score-thresholds":
+            output = app.model.save_score_threshold_comparison_report(
                 end_date=args.end_date,
                 trading_days=args.trading_days,
                 filtered=not args.raw,

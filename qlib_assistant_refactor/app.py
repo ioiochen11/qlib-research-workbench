@@ -67,6 +67,13 @@ class RollingTrader:
 
         train_info = self.train.start(limit=None)
         selection_dir = self.model.selection_report()
+        raw_csv_path = self.model.save_recommendation_sheet(
+            limit=30,
+            date=latest_date,
+            selection_dir=str(selection_dir),
+            filtered=False,
+            max_price=self.config.max_price,
+        )
         csv_path = self.model.save_recommendation_sheet(
             limit=30,
             date=latest_date,
@@ -121,6 +128,7 @@ class RollingTrader:
             max_price=self.config.max_price,
         )
         latest_paths = self._write_latest_artifacts(
+            raw_csv_path=raw_csv_path,
             csv_path=csv_path,
             markdown_path=markdown_path,
             html_path=html_path,
@@ -140,6 +148,7 @@ class RollingTrader:
             "train_info": train_info,
             "manifest_dir": manifest_dir,
             "selection_dir": str(selection_dir),
+            "raw_recommendations_csv": str(raw_csv_path),
             "recommendations_csv": str(csv_path),
             "recommendation_report_md": str(markdown_path),
             "recommendation_report_html": str(html_path),
@@ -153,6 +162,7 @@ class RollingTrader:
 
     def _write_latest_artifacts(
         self,
+        raw_csv_path: Path,
         csv_path: Path,
         markdown_path: Path,
         html_path: Path,
@@ -164,6 +174,7 @@ class RollingTrader:
     ) -> dict[str, str]:
         analysis_dir = Path(self.config.analysis_folder).expanduser()
         analysis_dir.mkdir(parents=True, exist_ok=True)
+        latest_raw_csv = analysis_dir / "latest_raw_recommendations.csv"
         latest_csv = analysis_dir / "latest_recommendations.csv"
         latest_md = analysis_dir / "latest_recommendation_report.md"
         latest_html = analysis_dir / "latest_recommendation_report.html"
@@ -172,6 +183,7 @@ class RollingTrader:
         latest_weekly_csv = analysis_dir / "latest_weekly_recommendations.csv"
         latest_weekly_md = analysis_dir / "latest_weekly_recommendation_report.md"
         latest_weekly_html = analysis_dir / "latest_weekly_recommendation_report.html"
+        shutil.copy2(raw_csv_path, latest_raw_csv)
         shutil.copy2(csv_path, latest_csv)
         shutil.copy2(markdown_path, latest_md)
         shutil.copy2(html_path, latest_html)
@@ -181,6 +193,7 @@ class RollingTrader:
         shutil.copy2(weekly_markdown_path, latest_weekly_md)
         shutil.copy2(weekly_html_path, latest_weekly_html)
         return {
+            "latest_raw_recommendations_csv": str(latest_raw_csv),
             "latest_recommendations_csv": str(latest_csv),
             "latest_recommendation_report_md": str(latest_md),
             "latest_recommendation_report_html": str(latest_html),

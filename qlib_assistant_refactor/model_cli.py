@@ -267,6 +267,12 @@ class ModelCLI:
             return plan
         target_date = pd.Timestamp(plan["datetime"].iloc[0]).strftime("%Y-%m-%d")
         plan = self._attach_feed_context(plan, as_of_date=target_date)
+        plan = self._attach_score_bucket_context(
+            plan,
+            as_of_date=target_date,
+            filtered=filtered,
+            max_price=max_price,
+        )
         columns = [
             "datetime",
             "validation_date",
@@ -274,6 +280,13 @@ class ModelCLI:
             "instrument",
             "name",
             "avg_score",
+            "score_bucket",
+            "bucket_hit_rate",
+            "bucket_direction_rate",
+            "bucket_avg_weekly_return",
+            "bucket_evaluable_count",
+            "bucket_reliable",
+            "bucket_note",
             "close",
             "buy_low",
             "buy_high",
@@ -304,7 +317,7 @@ class ModelCLI:
             "data_validation_status",
             "data_gate_status",
         ]
-        return plan.loc[:, columns]
+        return plan.reindex(columns=columns)
 
     def list_backups(self) -> dict[str, object]:
         manager = self._backup_manager()
@@ -746,6 +759,336 @@ class ModelCLI:
         output.write_text(report, encoding="utf-8")
         return output
 
+    def score_bucket_sheet(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> pd.DataFrame:
+        max_price = self._resolved_max_price(max_price)
+        sheet = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        columns = [
+            "score_bucket",
+            "signal_count",
+            "evaluable_count",
+            "hit_rate",
+            "direction_rate",
+            "avg_weekly_return",
+            "median_weekly_return",
+        ]
+        if sheet.empty:
+            return pd.DataFrame(columns=columns)
+
+        valid = sheet.dropna(subset=["weekly_return"]).copy()
+        if valid.empty:
+            return pd.DataFrame(columns=columns)
+
+        bins = [-np.inf, -0.02, -0.005, 0.0, 0.005, 0.02, np.inf]
+        labels = [
+            "小于 -0.0200",
+            "-0.0200 ~ -0.0050",
+            "-0.0050 ~ 0.0000",
+            "0.0000 ~ 0.0050",
+            "0.0050 ~ 0.0200",
+            "大于等于 0.0200",
+        ]
+        valid["score_bucket"] = pd.cut(
+            valid["avg_score"],
+            bins=bins,
+            labels=labels,
+            include_lowest=True,
+            right=False,
+        )
+        summary = (
+            valid.groupby("score_bucket", observed=False, as_index=False)
+            .agg(
+                signal_count=("instrument", "size"),
+                evaluable_count=("weekly_return", "count"),
+                hit_rate=("recommendation_hit", lambda s: float((s == "是").mean())),
+                direction_rate=("score_direction_match", lambda s: float((s == "是").mean())),
+                avg_weekly_return=("weekly_return", "mean"),
+                median_weekly_return=("weekly_return", "median"),
+            )
+        )
+        summary["score_bucket"] = summary["score_bucket"].astype(str)
+        return summary.sort_values("score_bucket").reset_index(drop=True)
+
+    def score_bucket_report(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> str:
+        max_price = self._resolved_max_price(max_price)
+        summary = self.score_bucket_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        report_end = end_date or "latest"
+        lines = [
+            f"# 分数分桶命中率分析（截至 {report_end}）",
+            "",
+            f"- 股票池：`{self._zh_stock_pool(self.config.stock_pool)}`",
+            f"- 回看交易日数：`{trading_days}`",
+            f"- 使用筛选结果：`{'是' if filtered else '否'}`",
+            f"- 价格上限：`{'不限' if max_price is None else f'{max_price:.2f} 元'}`",
+        ]
+        if summary.empty:
+            lines.extend(["", "暂无可用于分桶分析的已验证信号。"])
+            return "\n".join(lines) + "\n"
+
+        best_hit = summary.sort_values(["hit_rate", "evaluable_count"], ascending=[False, False]).iloc[0]
+        best_return = summary.sort_values(["avg_weekly_return", "evaluable_count"], ascending=[False, False]).iloc[0]
+        lines.extend(
+            [
+                "",
+                "## 结论摘要",
+                "",
+                f"- 命中率最高分桶：`{best_hit['score_bucket']}`，命中率 `{float(best_hit['hit_rate']):.2%}`，样本数 `{int(best_hit['evaluable_count'])}`",
+                f"- 平均收益最高分桶：`{best_return['score_bucket']}`，平均周收益 `{float(best_return['avg_weekly_return']):.2%}`，样本数 `{int(best_return['evaluable_count'])}`",
+                "- 更适合拿来提高命中率的，是 `命中率较高且样本数不太少` 的分桶。",
+            ]
+        )
+        display = summary.copy()
+        display.columns = [
+            "分数分桶",
+            "信号数",
+            "可核对数",
+            "命中率",
+            "方向一致率",
+            "平均周收益",
+            "周收益中位数",
+        ]
+        for col in ["命中率", "方向一致率", "平均周收益", "周收益中位数"]:
+            display[col] = display[col].map(lambda v: f"{float(v):.2%}")
+        lines.extend(["", "## 分桶结果", "", self._markdown_table(display)])
+        return "\n".join(lines) + "\n"
+
+    def save_score_bucket_sheet(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> Path:
+        max_price = self._resolved_max_price(max_price)
+        summary = self.score_bucket_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        output_dir = Path(self.config.analysis_folder).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_date = end_date or "latest"
+        suffix = "filtered" if filtered else "raw"
+        output = output_dir / f"score_buckets_{target_date}_{suffix}{self._price_suffix(max_price)}.csv"
+        self._score_bucket_sheet_zh(summary).to_csv(output, index=False, encoding="utf-8-sig")
+        return output
+
+    def save_score_bucket_report(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+    ) -> Path:
+        max_price = self._resolved_max_price(max_price)
+        report = self.score_bucket_report(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        output_dir = Path(self.config.analysis_folder).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_date = end_date or "latest"
+        suffix = "filtered" if filtered else "raw"
+        output = output_dir / f"score_bucket_report_{target_date}_{suffix}{self._price_suffix(max_price)}.md"
+        output.write_text(report, encoding="utf-8")
+        return output
+
+    def score_threshold_comparison_sheet(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+        thresholds: list[float] | None = None,
+    ) -> pd.DataFrame:
+        max_price = self._resolved_max_price(max_price)
+        thresholds = thresholds or [0.50, 0.55, 0.60]
+        summary = self.score_bucket_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        weekly = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        valid = weekly.dropna(subset=["weekly_return"]).copy()
+        if not valid.empty and "score_bucket" not in valid.columns:
+            valid["score_bucket"] = valid["avg_score"].map(self._score_bucket_label)
+        total_evaluable = len(valid)
+        rows: list[dict[str, object]] = []
+        for threshold in thresholds:
+            if summary.empty:
+                reliable = summary.iloc[0:0].copy()
+            else:
+                reliable = summary[
+                    (summary["evaluable_count"] >= int(self.config.score_bucket_min_evaluable_count))
+                    & (summary["hit_rate"] >= float(threshold))
+                    & (summary["avg_weekly_return"] >= float(self.config.score_bucket_min_avg_weekly_return))
+                ].copy()
+            reliable_buckets = set(reliable["score_bucket"].astype(str))
+            kept = valid[valid["score_bucket"].isin(reliable_buckets)].copy() if not valid.empty else valid
+            rows.append(
+                {
+                    "hit_rate_threshold": float(threshold),
+                    "reliable_bucket_count": len(reliable_buckets),
+                    "reliable_buckets": "、".join(sorted(reliable_buckets)) if reliable_buckets else "暂无",
+                    "kept_signal_count": len(kept),
+                    "kept_signal_ratio": (len(kept) / total_evaluable) if total_evaluable else 0.0,
+                    "kept_hit_rate": float((kept["recommendation_hit"] == "是").mean()) if not kept.empty else np.nan,
+                    "kept_avg_weekly_return": float(kept["weekly_return"].mean()) if not kept.empty else np.nan,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    def score_threshold_comparison_report(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+        thresholds: list[float] | None = None,
+    ) -> str:
+        max_price = self._resolved_max_price(max_price)
+        thresholds = thresholds or [0.50, 0.55, 0.60]
+        report_end = end_date or "latest"
+        candidate_sheet = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=False,
+            max_price=max_price,
+        )
+        final_sheet = self.weekly_recommendation_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=True,
+            max_price=max_price,
+        )
+        lines = [
+            f"# 命中率阈值对比（截至 {report_end}）",
+            "",
+            f"- 股票池：`{self._zh_stock_pool(self.config.stock_pool)}`",
+            f"- 回看交易日数：`{trading_days}`",
+            f"- 价格上限：`{'不限' if max_price is None else f'{max_price:.2f} 元'}`",
+            f"- 候选样本数：`{len(candidate_sheet.dropna(subset=['weekly_return']))}`",
+            f"- 最终推荐样本数：`{len(final_sheet.dropna(subset=['weekly_return']))}`",
+        ]
+        final_comparison = self.score_threshold_comparison_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=True,
+            max_price=max_price,
+            thresholds=thresholds,
+        )
+        candidate_comparison = self.score_threshold_comparison_sheet(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=False,
+            max_price=max_price,
+            thresholds=thresholds,
+        )
+        if final_comparison.empty and candidate_comparison.empty:
+            lines.extend(["", "暂无可用于阈值对比的已验证信号。"])
+            return "\n".join(lines) + "\n"
+        lines.extend(
+            [
+                "",
+                "## 最终推荐视角",
+                "",
+                "这部分只看已经通过日报过滤、真正落到最终推荐名单里的样本。",
+                "",
+                self._markdown_table(self._score_threshold_display(final_comparison)),
+                "",
+                "## 候选样本视角",
+                "",
+                "这部分看过滤前候选，更适合判断历史样本是否足够、分桶阈值是否过严。",
+                "",
+                self._markdown_table(self._score_threshold_display(candidate_comparison)),
+            ]
+        )
+        return "\n".join(lines) + "\n"
+
+    def save_score_threshold_comparison_report(
+        self,
+        end_date: str | None = None,
+        trading_days: int = 60,
+        filtered: bool = True,
+        max_price: float | None = None,
+        thresholds: list[float] | None = None,
+    ) -> Path:
+        max_price = self._resolved_max_price(max_price)
+        report = self.score_threshold_comparison_report(
+            end_date=end_date,
+            trading_days=trading_days,
+            filtered=filtered,
+            max_price=max_price,
+            thresholds=thresholds,
+        )
+        output_dir = Path(self.config.analysis_folder).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_date = end_date or "latest"
+        suffix = "filtered" if filtered else "raw"
+        output = output_dir / f"score_threshold_report_{target_date}_{suffix}{self._price_suffix(max_price)}.md"
+        output.write_text(report, encoding="utf-8")
+        return output
+
+    @staticmethod
+    def _score_threshold_display(comparison: pd.DataFrame) -> pd.DataFrame:
+        if comparison.empty:
+            return pd.DataFrame(
+                [
+                    {
+                        "命中率阈值": "缺失",
+                        "可靠分桶数": 0,
+                        "可靠分桶": "暂无",
+                        "保留信号数": 0,
+                        "保留占比": "缺失",
+                        "保留后命中率": "缺失",
+                        "保留后平均周收益": "缺失",
+                    }
+                ]
+            )
+        display = comparison.copy()
+        display.columns = [
+            "命中率阈值",
+            "可靠分桶数",
+            "可靠分桶",
+            "保留信号数",
+            "保留占比",
+            "保留后命中率",
+            "保留后平均周收益",
+        ]
+        for col in ["命中率阈值", "保留占比", "保留后命中率", "保留后平均周收益"]:
+            display[col] = display[col].map(lambda v: "缺失" if pd.isna(v) else f"{float(v):.2%}")
+        return display
+
     def recommendation_report(
         self,
         limit: int = 10,
@@ -776,6 +1119,7 @@ class ModelCLI:
             lines.append(f"- 价格上限：`{max_price:.2f}`")
         lines.extend(["", "## 数据可信度摘要", ""])
         lines.extend(self._credibility_lines(str(target_date)))
+        lines.extend(self._score_bucket_filter_lines(str(target_date), filtered=filtered, max_price=max_price))
         if sheet.empty:
             lines.extend(["", "没有符合条件的推荐结果。"])
             return "\n".join(lines) + "\n"
@@ -806,11 +1150,13 @@ class ModelCLI:
         )
         display["验证状态中文"] = display["validation_status"].map(self._zh_validation_status)
         display["验证说明中文"] = display["validation_note"].map(self._zh_validation_note)
-        table = display[
-            [
+        table = display.reindex(
+            columns=[
                 "score_rank",
                 "候选股票",
                 "avg_score",
+                "score_bucket",
+                "bucket_reliable",
                 "close",
                 "buy_low",
                 "buy_high",
@@ -818,11 +1164,13 @@ class ModelCLI:
                 "验证状态中文",
                 "验证说明中文",
             ]
-        ].copy()
+        ).copy()
         table.columns = [
             "排名",
             "候选股票",
             "平均分",
+            "分数分桶",
+            "历史可靠性",
             "收盘价",
             "买入下沿",
             "买入上沿",
@@ -852,6 +1200,9 @@ class ModelCLI:
                 "",
                 f"- 股票：`{candidate_label}`",
                 f"- 平均分：`{float(first['avg_score']):.4f}`",
+                f"- 分数分桶：`{str(first.get('score_bucket', '未知'))}`",
+                f"- 历史可靠性：`{str(first.get('bucket_reliable', '未知'))}`",
+                f"- 分桶说明：`{str(first.get('bucket_note', '历史样本不足，暂无法判断该分数档是否可靠'))}`",
                 f"- 收盘价：`{float(first['close']):.4f}`",
                 f"- 买入区间：`{float(first['buy_low']):.4f} - {float(first['buy_high']):.4f}`",
                 f"- 突破价：`{float(first['breakout_price']):.4f}`",
@@ -912,6 +1263,7 @@ class ModelCLI:
         )
         title = f"推荐验证日报 - {target_date}"
         credibility_items = self._credibility_lines(str(target_date))
+        bucket_filter_items = self._score_bucket_filter_lines(str(target_date), filtered=filtered, max_price=max_price)
         status_counts = (
             sheet["validation_status"].fillna("unknown").value_counts().sort_index()
             if not sheet.empty
@@ -926,6 +1278,8 @@ class ModelCLI:
 <div class="candidate-grid">
   <div class="candidate-item"><span>候选股票</span><strong>{candidate}</strong></div>
   <div class="candidate-item"><span>平均分</span><strong>{avg_score}</strong></div>
+  <div class="candidate-item"><span>分数分桶</span><strong>{score_bucket}</strong></div>
+  <div class="candidate-item"><span>历史可靠性</span><strong>{bucket_reliable}</strong></div>
   <div class="candidate-item"><span>收盘价</span><strong>{close}</strong></div>
   <div class="candidate-item"><span>买入区间</span><strong>{buy_zone}</strong></div>
   <div class="candidate-item"><span>突破价</span><strong>{breakout}</strong></div>
@@ -934,10 +1288,13 @@ class ModelCLI:
   <div class="candidate-item"><span>止盈二</span><strong>{tp2}</strong></div>
   <div class="candidate-item"><span>验证状态</span><strong>{status}</strong></div>
   <div class="candidate-item"><span>验证说明</span><strong>{note}</strong></div>
+  <div class="candidate-item"><span>分桶说明</span><strong>{bucket_note}</strong></div>
 </div>
 """.format(
                 candidate=html.escape(candidate_label),
                 avg_score=f"{float(first['avg_score']):.4f}",
+                score_bucket=html.escape(str(first.get("score_bucket", "未知"))),
+                bucket_reliable=html.escape(str(first.get("bucket_reliable", "未知"))),
                 close=f"{float(first['close']):.4f}",
                 buy_zone=html.escape(f"{float(first['buy_low']):.4f} - {float(first['buy_high']):.4f}"),
                 breakout=f"{float(first['breakout_price']):.4f}",
@@ -946,6 +1303,7 @@ class ModelCLI:
                 tp2=f"{float(first['take_profit_2']):.4f}",
                 status=html.escape(self._zh_validation_status(str(first["validation_status"]))),
                 note=html.escape(self._zh_validation_note(str(first["validation_note"]))),
+                bucket_note=html.escape(str(first.get("bucket_note", "历史样本不足，暂无法判断该分数档是否可靠"))),
             )
 
         summary_cards = [
@@ -971,6 +1329,9 @@ class ModelCLI:
         ) or self._summary_card("状态", "无结果", compact=True)
         credibility_html = "".join(
             f"<li>{html.escape(item.replace('- ', '', 1).replace('`', ''))}</li>" for item in credibility_items
+        )
+        bucket_filter_html = "".join(
+            f"<li>{html.escape(item.replace('- ', '', 1).replace('`', ''))}</li>" for item in bucket_filter_items
         )
 
         table_html = self._recommendation_table_html(sheet)
@@ -1165,6 +1526,14 @@ class ModelCLI:
       <div class="card">
         <ul class="credibility-list">
           {credibility_html}
+        </ul>
+      </div>
+    </section>
+    <section>
+      <h2>历史分桶过滤</h2>
+      <div class="card">
+        <ul class="credibility-list">
+          {bucket_filter_html}
         </ul>
       </div>
     </section>
@@ -2312,6 +2681,8 @@ class ModelCLI:
                 f"<td>{int(row['score_rank'])}</td>"
                 f"<td><strong>{html.escape(candidate_label)}</strong><div class=\"small\">{html.escape(action_plan)}</div></td>"
                 f"<td>{float(row['avg_score']):.4f}</td>"
+                f"<td>{html.escape(str(row.get('score_bucket', '未知')))}</td>"
+                f"<td>{html.escape(str(row.get('bucket_reliable', '未知')))}</td>"
                 f"<td>{float(row['close']):.4f}</td>"
                 f"<td>{float(row['buy_low']):.4f} - {float(row['buy_high']):.4f}</td>"
                 f"<td>{float(row['breakout_price']):.4f}</td>"
@@ -2319,6 +2690,7 @@ class ModelCLI:
                 f"<td>{float(row['take_profit_1']):.4f} / {float(row['take_profit_2']):.4f}</td>"
                 f"<td><span class=\"badge {html.escape(status)}\">{html.escape(self._zh_validation_status(status))}</span></td>"
                 f"<td>{html.escape(self._zh_validation_note(str(row.get('validation_note', ''))))}</td>"
+                f"<td>{html.escape(str(row.get('bucket_note', '历史样本不足，暂无法判断该分数档是否可靠')))}</td>"
                 "</tr>"
             )
         return """
@@ -2328,6 +2700,8 @@ class ModelCLI:
       <th>排名</th>
       <th>候选股票</th>
       <th>平均分</th>
+      <th>分数分桶</th>
+      <th>历史可靠性</th>
       <th>收盘价</th>
       <th>买入区间</th>
       <th>突破价</th>
@@ -2335,6 +2709,7 @@ class ModelCLI:
       <th>止盈位</th>
       <th>验证状态</th>
       <th>验证说明</th>
+      <th>分桶说明</th>
     </tr>
   </thead>
   <tbody>
@@ -2465,6 +2840,115 @@ class ModelCLI:
             return limit
         return max(limit * 10, 100)
 
+    def _attach_score_bucket_context(
+        self,
+        plan: pd.DataFrame,
+        *,
+        as_of_date: str,
+        filtered: bool,
+        max_price: float | None,
+    ) -> pd.DataFrame:
+        if plan.empty:
+            return plan
+        summary = self.score_bucket_sheet(
+            end_date=as_of_date,
+            trading_days=self.config.score_bucket_lookback_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        enriched = plan.copy()
+        enriched["score_bucket"] = enriched["avg_score"].map(self._score_bucket_label)
+        if summary.empty:
+            enriched["bucket_hit_rate"] = np.nan
+            enriched["bucket_direction_rate"] = np.nan
+            enriched["bucket_avg_weekly_return"] = np.nan
+            enriched["bucket_evaluable_count"] = 0
+            enriched["bucket_reliable"] = "未知"
+            enriched["bucket_note"] = "历史样本不足，暂无法判断该分数档是否可靠"
+            return enriched
+
+        merged = enriched.merge(summary, how="left", on="score_bucket")
+        merged["bucket_evaluable_count"] = merged["evaluable_count"].fillna(0).astype(int)
+        merged["bucket_hit_rate"] = merged["hit_rate"]
+        merged["bucket_direction_rate"] = merged["direction_rate"]
+        merged["bucket_avg_weekly_return"] = merged["avg_weekly_return"]
+        reliable_buckets = self._reliable_score_buckets(summary)
+        merged["bucket_reliable"] = merged["score_bucket"].map(lambda value: "是" if value in reliable_buckets else "否")
+        merged["bucket_note"] = merged.apply(self._bucket_note, axis=1)
+
+        if not self.config.score_bucket_filter_enabled:
+            return merged
+
+        filtered_merged = merged[merged["bucket_reliable"] == "是"].copy()
+        if not filtered_merged.empty:
+            return filtered_merged.reset_index(drop=True)
+        if self.config.score_bucket_fallback_to_unfiltered:
+            return merged
+        return filtered_merged
+
+    def _reliable_score_buckets(self, summary: pd.DataFrame) -> set[str]:
+        if summary.empty:
+            return set()
+        keep = summary[
+            (summary["evaluable_count"] >= int(self.config.score_bucket_min_evaluable_count))
+            & (summary["hit_rate"] >= float(self.config.score_bucket_min_hit_rate))
+            & (summary["avg_weekly_return"] >= float(self.config.score_bucket_min_avg_weekly_return))
+        ]
+        return set(keep["score_bucket"].astype(str))
+
+    @staticmethod
+    def _score_bucket_label(avg_score: float) -> str:
+        value = float(avg_score)
+        if value < -0.02:
+            return "小于 -0.0200"
+        if value < -0.005:
+            return "-0.0200 ~ -0.0050"
+        if value < 0.0:
+            return "-0.0050 ~ 0.0000"
+        if value < 0.005:
+            return "0.0000 ~ 0.0050"
+        if value < 0.02:
+            return "0.0050 ~ 0.0200"
+        return "大于等于 0.0200"
+
+    @staticmethod
+    def _bucket_note(row: pd.Series) -> str:
+        count = int(row.get("bucket_evaluable_count", 0) or 0)
+        hit_rate = row.get("bucket_hit_rate")
+        avg_return = row.get("bucket_avg_weekly_return")
+        if count <= 0 or pd.isna(hit_rate) or pd.isna(avg_return):
+            return "历史样本不足，暂无法判断该分数档是否可靠"
+        return (
+            f"该分数档历史可核对 {count} 次；命中率 {float(hit_rate):.2%}；"
+            f"平均周收益 {float(avg_return):.2%}"
+        )
+
+    def _score_bucket_filter_lines(
+        self,
+        as_of_date: str,
+        *,
+        filtered: bool,
+        max_price: float | None,
+    ) -> list[str]:
+        lines = [
+            f"- 历史分桶过滤：`{'开启' if self.config.score_bucket_filter_enabled else '关闭'}`",
+            f"- 回看窗口：`{self.config.score_bucket_lookback_days} 个交易日`",
+            f"- 命中率阈值：`{self.config.score_bucket_min_hit_rate:.0%}`",
+            f"- 平均周收益阈值：`{self.config.score_bucket_min_avg_weekly_return:.2%}`",
+            f"- 最低样本数：`{self.config.score_bucket_min_evaluable_count}`",
+        ]
+        summary = self.score_bucket_sheet(
+            end_date=as_of_date,
+            trading_days=self.config.score_bucket_lookback_days,
+            filtered=filtered,
+            max_price=max_price,
+        )
+        reliable = sorted(self._reliable_score_buckets(summary))
+        lines.append(f"- 当前可靠分桶：`{'、'.join(reliable) if reliable else '暂无'}`")
+        if self.config.score_bucket_filter_enabled and not reliable:
+            lines.append("- 当前没有任何分数分桶同时满足历史可靠性阈值，因此系统会宁可空仓也不强行推荐。")
+        return lines
+
     def _recommendation_sheet_zh(self, sheet: pd.DataFrame) -> pd.DataFrame:
         columns = [
             ("datetime", "信号日期"),
@@ -2473,6 +2957,13 @@ class ModelCLI:
             ("instrument", "股票代码"),
             ("name", "股票名称"),
             ("avg_score", "平均分"),
+            ("score_bucket", "分数分桶"),
+            ("bucket_hit_rate", "分桶命中率"),
+            ("bucket_direction_rate", "分桶方向一致率"),
+            ("bucket_avg_weekly_return", "分桶平均周收益"),
+            ("bucket_evaluable_count", "分桶样本数"),
+            ("bucket_reliable", "历史可靠性"),
+            ("bucket_note", "分桶说明"),
             ("close", "收盘价"),
             ("buy_low", "买入下沿"),
             ("buy_high", "买入上沿"),
@@ -2505,6 +2996,9 @@ class ModelCLI:
         ]
         display = pd.DataFrame(columns=[label for _, label in columns]) if sheet.empty else sheet.copy()
         if not display.empty:
+            for key in ["bucket_hit_rate", "bucket_direction_rate", "bucket_avg_weekly_return"]:
+                if key in display.columns:
+                    display[key] = display[key].map(lambda v: np.nan if pd.isna(v) else f"{float(v):.2%}")
             display["action_plan"] = display["action_plan"].map(self._zh_action_plan)
             display["signal_reason"] = display["signal_reason"].map(self._zh_signal_reason)
             display["validation_status"] = display["validation_status"].map(self._zh_validation_status)
@@ -2548,6 +3042,29 @@ class ModelCLI:
             display["weekly_return"] = display["weekly_return"].map(
                 lambda v: np.nan if pd.isna(v) else round(float(v), 6)
             )
+        rename_map = {src: dst for src, dst in columns}
+        available = [src for src, _ in columns if src in display.columns]
+        display = display.loc[:, available].rename(columns=rename_map)
+        for _, label in columns:
+            if label not in display.columns:
+                display[label] = pd.Series(dtype=object)
+        return display[[label for _, label in columns]]
+
+    def _score_bucket_sheet_zh(self, sheet: pd.DataFrame) -> pd.DataFrame:
+        columns = [
+            ("score_bucket", "分数分桶"),
+            ("signal_count", "信号数"),
+            ("evaluable_count", "可核对数"),
+            ("hit_rate", "命中率"),
+            ("direction_rate", "方向一致率"),
+            ("avg_weekly_return", "平均周收益"),
+            ("median_weekly_return", "周收益中位数"),
+        ]
+        display = pd.DataFrame(columns=[label for _, label in columns]) if sheet.empty else sheet.copy()
+        if not display.empty:
+            for key in ["hit_rate", "direction_rate", "avg_weekly_return", "median_weekly_return"]:
+                if key in display.columns:
+                    display[key] = display[key].map(lambda v: f"{float(v):.2%}")
         rename_map = {src: dst for src, dst in columns}
         available = [src for src, _ in columns if src in display.columns]
         display = display.loc[:, available].rename(columns=rename_map)
