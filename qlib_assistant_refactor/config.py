@@ -63,6 +63,7 @@ class AppConfig:
     confidence_filter_enabled: bool = False
     confidence_min_level: str = "高"
     confidence_filter_fallback_to_unfiltered: bool = False
+    filtered_candidate_fallback_to_raw: bool = False
     source_priority: Dict[str, List[str]] = field(
         default_factory=lambda: {
             "market": ["akshare", "eastmoney"],
@@ -136,6 +137,7 @@ class AppConfig:
             "confidence_filter_enabled": data.get("confidence_filter_enabled", defaults.confidence_filter_enabled),
             "confidence_min_level": data.get("confidence_min_level", defaults.confidence_min_level),
             "confidence_filter_fallback_to_unfiltered": data.get("confidence_filter_fallback_to_unfiltered", defaults.confidence_filter_fallback_to_unfiltered),
+            "filtered_candidate_fallback_to_raw": data.get("filtered_candidate_fallback_to_raw", defaults.filtered_candidate_fallback_to_raw),
             "source_priority": data.get("source_priority", defaults.source_priority),
             "min_universe_coverage": data.get("min_universe_coverage", defaults.min_universe_coverage),
             "price_conflict_tolerance": data.get("price_conflict_tolerance", defaults.price_conflict_tolerance),

@@ -551,6 +551,73 @@ class ModelCLITests(TestCase):
         self.assertEqual(df["instrument"].tolist(), ["SH601012"])
         self.assertEqual(df.iloc[0]["bucket_reliable"], "是")
 
+    def test_recommendation_sheet_falls_back_to_unfiltered_candidates_for_daily_testing(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            analysis_dir = Path(tmpdir) / "analysis"
+            selection_dir = analysis_dir / "selection_20260402_102059"
+            selection_dir.mkdir(parents=True, exist_ok=True)
+
+            pd.DataFrame(
+                columns=["datetime", "instrument", "avg_score", "pos_ratio", "model_count"]
+            ).to_csv(selection_dir / "2026-04-01_filter_ret.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(
+                [
+                    {
+                        "datetime": "2026-04-01",
+                        "instrument": "SH688223",
+                        "avg_score": 0.0421,
+                        "pos_ratio": 1.0,
+                        "model_count": 1,
+                    },
+                    {
+                        "datetime": "2026-04-01",
+                        "instrument": "SZ000630",
+                        "avg_score": 0.0365,
+                        "pos_ratio": 1.0,
+                        "model_count": 1,
+                    },
+                ]
+            ).to_csv(selection_dir / "2026-04-01_ret.csv", index=False, encoding="utf-8-sig")
+
+            cli = ModelCLI(
+                AppConfig(
+                    analysis_folder=str(analysis_dir),
+                    filtered_candidate_fallback_to_raw=True,
+                    score_bucket_filter_enabled=True,
+                    score_bucket_fallback_to_unfiltered=True,
+                    confidence_filter_enabled=True,
+                    confidence_min_level="高",
+                    confidence_filter_fallback_to_unfiltered=True,
+                    max_price=30.0,
+                )
+            )
+            cli._get_entry_price_history = Mock(
+                return_value=pd.DataFrame(
+                    {
+                        "datetime": list(pd.date_range("2026-03-19", periods=10, freq="B")) * 2,
+                        "instrument": ["SH688223"] * 10 + ["SZ000630"] * 10,
+                        "close": [6.5, 6.6, 6.7, 6.8, 6.75, 6.7, 6.72, 6.74, 6.78, 6.82]
+                        + [5.6, 5.7, 5.8, 5.85, 5.9, 5.88, 5.9, 5.92, 5.95, 5.98],
+                        "open": [6.4] * 10 + [5.5] * 10,
+                        "high": [6.9] * 10 + [6.1] * 10,
+                        "low": [6.3] * 10 + [5.4] * 10,
+                    }
+                )
+            )
+            cli._attach_feed_context = Mock(side_effect=lambda plan, as_of_date: plan)
+            cli._attach_score_bucket_context = Mock(side_effect=lambda plan, as_of_date, filtered, max_price: plan.assign(bucket_reliable="否"))
+
+            df = cli.recommendation_sheet(
+                limit=5,
+                date="2026-04-01",
+                selection_dir=str(selection_dir),
+                filtered=True,
+                max_price=30.0,
+            )
+
+            self.assertEqual(df["instrument"].tolist(), ["SH688223", "SZ000630"])
+            self.assertTrue((df["confidence_level"] == "中").all())
+
     def test_weekly_recommendation_sheet_builds_recent_comparison_rows(self) -> None:
         with TemporaryDirectory() as tmpdir:
             analysis_dir = Path(tmpdir) / "analysis"

@@ -2168,12 +2168,18 @@ class ModelCLI:
             date_list = self._selection_dates(base_dir)
             if date_list:
                 target_date = date or date_list[-1]
-                suffix = "filter_ret" if filtered else "ret"
-                file_path = base_dir / f"{target_date}_{suffix}.csv"
-                if file_path.exists():
+                suffixes = ["filter_ret"] if filtered else ["ret"]
+                if filtered and self.config.filtered_candidate_fallback_to_raw:
+                    suffixes.append("ret")
+                for suffix in suffixes:
+                    file_path = base_dir / f"{target_date}_{suffix}.csv"
+                    if not file_path.exists():
+                        continue
                     df = pd.read_csv(file_path, parse_dates=["datetime"])
                     keep = [col for col in ["datetime", "instrument", "avg_score", "pos_ratio", "model_count"] if col in df.columns]
                     result = df.loc[:, keep].head(limit).reset_index(drop=True)
+                    if result.empty:
+                        continue
                     result["score_rank"] = range(1, len(result) + 1)
                     return result
 
@@ -3070,7 +3076,10 @@ class ModelCLI:
         reliable = sorted(self._reliable_score_buckets(summary))
         lines.append(f"- 当前可靠分桶：`{'、'.join(reliable) if reliable else '暂无'}`")
         if self.config.score_bucket_filter_enabled and not reliable:
-            lines.append("- 当前没有任何分数分桶同时满足历史可靠性阈值，因此系统会宁可空仓也不强行推荐。")
+            if self.config.score_bucket_fallback_to_unfiltered:
+                lines.append("- 当前没有任何分数分桶同时满足历史可靠性阈值，系统会自动回退到未拦截候选。")
+            else:
+                lines.append("- 当前没有任何分数分桶同时满足历史可靠性阈值，因此系统会宁可空仓也不强行推荐。")
         return lines
 
     def _confidence_filter_lines(self, *, filtered: bool) -> list[str]:
@@ -3083,10 +3092,14 @@ class ModelCLI:
             return lines
         if self.config.confidence_filter_enabled:
             lines.append("- 正式推荐只保留达到设定置信度阈值的候选。")
-            if not self.config.confidence_filter_fallback_to_unfiltered:
+            if self.config.confidence_filter_fallback_to_unfiltered:
+                lines.append("- 如果没有股票达到置信度阈值，系统会自动回退到未拦截候选，保证每天都有测试名单。")
+            else:
                 lines.append("- 如果没有股票达到置信度阈值，系统会宁可空仓也不强行推荐。")
         else:
             lines.append("- 当前不会因为置信度不足而拦截正式推荐。")
+        if self.config.filtered_candidate_fallback_to_raw:
+            lines.append("- 如果技术过滤后的正式候选为空，系统会自动回退到原始候选 TopN。")
         return lines
 
     def _recommendation_sheet_zh(self, sheet: pd.DataFrame) -> pd.DataFrame:
